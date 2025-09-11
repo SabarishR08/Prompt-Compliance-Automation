@@ -1,0 +1,28 @@
+{
+  "toxicity_thresholds": {
+    "toxicity": 0.3,
+    "severe_toxicity": 0.2,
+    "obscene": 0.3,
+    "threat": 0.2,
+    "insult": 0.3,
+    "identity_attack": 0.2
+  },
+  "flagged_keywords": [
+    "confidential",
+    "secret",
+    "internal use",
+    "demo",
+    "prototype",
+    "test"
+  ],
+  "blocked_keywords": [
+    "password",
+    "ssn",
+    "credit card",
+    "social security number",
+    "token",
+    "api key"
+  ],
+  "max_prompt_length": 256,
+  "max_payload_size": 5120
+}

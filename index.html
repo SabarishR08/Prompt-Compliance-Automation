@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prompt Compliance Prototype</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f1f5f9; /* slate-100 */
+        }
+        .container { max-width: 800px; }
+        .card {
+            background-color: #ffffff;
+            border-radius: 1rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.08);
+        }
+        /* NEW: Updated Status Colors */
+        .status-safe { background-color: #a7f3d0; color: #047857; } /* emerald-200, emerald-700 */
+        .status-flagged { background-color: #fde68a; color: #a16207; } /* amber-200, amber-700 */
+        .status-blocked { background-color: #fecdd3; color: #be123c; } /* rose-200, rose-700 */
+        .loading-spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 36px; height: 36px;
+            border-radius: 50%;
+            border-left-color: #0d9488; /* teal-600 */
+            animation: spin 1s ease infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .reason-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+        .reason-keyword { background-color: #e0e7ff; color: #3730a3; }
+        .reason-pii { background-color: #fecaca; color: #b91c1c; }
+        .reason-toxic { background-color: #fed7aa; color: #9a3412; }
+        .reason-warning { background-color: #fef08a; color: #854d0e; }
+        .reason-error { background-color: #fecdd3; color: #be123c; }
+
+        .fade-in {
+            animation: fadeIn 0.5s ease-in-out forwards;
+            opacity: 0;
+            transform: translateY(10px);
+        }
+        @keyframes fadeIn { to { opacity: 1; transform: translateY(0); } }
+        
+        .toast-container { position: fixed; bottom: 1rem; right: 1rem; z-index: 50; }
+        .toast {
+            padding: 0.75rem 1.25rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            color: #ffffff; font-weight: 600;
+            opacity: 0; transition: opacity 0.3s ease-in-out;
+            transform: translateY(20px);
+        }
+        .toast.show { opacity: 1; transform: translateY(0); display: block; }
+        .toast-success { background-color: #0d9488; } /* teal-600 */
+        .toast-error { background-color: #e11d48; } /* rose-600 */
+
+        .blocked-row {
+            border-left-width: 8px;
+            border-left-color: #e11d48; /* rose-600 */
+            animation: blocked-highlight 1.5s ease-in-out forwards;
+        }
+        @keyframes blocked-highlight {
+            0% { transform: scale(1); background-color: #ffe4e6; } /* rose-50 */
+            50% { transform: scale(1.02); background-color: #fecdd3; } /* rose-200 */
+            100% { transform: scale(1); background-color: #ffe4e6; } /* rose-50 */
+        }
+        .modal {
+            display: none; position: fixed; z-index: 100;
+            left: 0; top: 0; width: 100%; height: 100%;
+            background-color: rgba(0, 0, 0, 0.6);
+            justify-content: center; align-items: center;
+        }
+        .modal-content {
+            background-color: #fff; padding: 2rem; border-radius: 1rem;
+            max-width: 500px; width: 90%; position: relative;
+            animation: modal-pop 0.3s ease-out forwards;
+        }
+        @keyframes modal-pop {
+            from { transform: scale(0.9); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+        .close-button {
+            position: absolute; top: 1rem; right: 1rem;
+            font-size: 1.5rem; font-weight: bold; color: #9ca3af;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 flex items-center justify-center min-h-screen p-4">
+
+    <div class="container w-full p-6 card">
+        <header class="flex justify-between items-center mb-6">
+            <h1 class="text-2xl font-bold text-gray-800">Prompt Compliance Prototype</h1>
+            <div class="flex space-x-2">
+                <button id="showCheckerBtn" class="px-4 py-2 text-sm font-semibold rounded-lg bg-teal-600 text-white hover:bg-teal-700 focus:outline-none transition">Checker</button>
+                <button id="showLogsBtn" class="px-4 py-2 text-sm font-semibold rounded-lg bg-gray-200 text-gray-700 hover:bg-gray-300 focus:outline-none transition">Logs</button>
+            </div>
+        </header>
+
+        <!-- Prompt Checker Section -->
+        <div id="checkerSection">
+            <div class="flex justify-between items-center mb-6">
+                <div>
+                    <label class="block text-gray-700 font-medium">Current Mode: <span id="currentModeText" class="font-semibold text-teal-700">Default</span></label>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <label for="modeSelect" class="text-sm font-medium text-gray-700">Select Mode:</label>
+                    <select id="modeSelect" class="rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
+                        <option>Default</option>
+                        <option>Custom</option>
+                        <option>Hybrid</option>
+                    </select>
+                    <button id="updateModeBtn" class="px-4 py-2 text-sm font-semibold rounded-lg bg-slate-700 text-white hover:bg-slate-800 focus:outline-none transition">Update</button>
+                </div>
+            </div>
+
+            <div class="mb-4">
+                <label for="promptInput" class="block text-gray-700 font-medium mb-2">Enter a prompt to check:</label>
+                <textarea id="promptInput" rows="6" class="w-full p-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-teal-400 transition" placeholder="e.g., 'What is the secret recipe for this dish?' or 'My phone number is 555-1234.'"></textarea>
+            </div>
+            <button id="submitBtn" class="w-full bg-teal-600 text-white font-semibold py-3 rounded-lg hover:bg-teal-700 transition">Check Prompt</button>
+
+            <div id="loading" class="hidden flex justify-center items-center mt-6">
+                <div class="loading-spinner"></div>
+            </div>
+            <div id="errorMessage" class="hidden mt-6 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg relative" role="alert">
+                <strong class="font-bold">Error!</strong>
+                <span id="errorText" class="block sm:inline"></span>
+            </div>
+
+            <div id="results" class="mt-6 hidden fade-in">
+                <div class="p-4 rounded-lg" id="statusBox">
+                    <h3 class="font-bold text-lg mb-2">Result: <span id="statusText"></span></h3>
+                    <div id="reasonsList" class="flex flex-wrap gap-2 text-sm"></div>
+                </div>
+                <div id="redactedSection" class="mt-4 hidden">
+                    <h4 class="font-bold text-md text-gray-700">Redacted Prompt:</h4>
+                    <p id="redactedText" class="p-3 mt-2 rounded-lg bg-gray-100 text-gray-800 font-mono text-sm"></p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Logs Section -->
+        <div id="logsSection" class="hidden">
+             <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-bold text-gray-800">Prompt History</h2>
+                <div class="flex space-x-2">
+                    <button id="refreshLogsBtn" class="px-4 py-2 text-sm font-semibold rounded-lg bg-gray-200 text-gray-700 hover:bg-gray-300 focus:outline-none transition">
+                        <span id="refreshLogsText">Refresh</span>
+                    </button>
+                    <button id="downloadLogsBtn" class="px-4 py-2 text-sm font-semibold rounded-lg bg-green-500 text-white hover:bg-green-600 focus:outline-none transition">Download</button>
+                </div>
+            </div>
+
+            <div id="logSummaryDashboard" class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div class="p-4 rounded-lg bg-gray-50 card">
+                    <h3 class="text-sm font-bold text-gray-500 uppercase">Total Prompts</h3>
+                    <p id="totalCount" class="text-2xl font-bold text-gray-900 mt-2">0</p>
+                </div>
+                <div class="p-4 rounded-lg bg-gray-50 card">
+                    <h3 class="text-sm font-bold text-gray-500 uppercase">Status Breakdown</h3>
+                    <div class="mt-2 text-sm font-semibold space-y-1">
+                        <p class="flex justify-between">
+                            <span class="text-green-600">Safe:</span>
+                            <span id="safeCount">0</span>
+                        </p>
+                        <p class="flex justify-between">
+                            <span class="text-yellow-600">Flagged:</span>
+                            <span id="flaggedCount">0</span>
+                        </p>
+                        <p class="flex justify-between">
+                            <span class="text-red-600">Blocked:</span>
+                            <span id="blockedCount">0</span>
+                        </p>
+                    </div>
+                </div>
+                <div class="p-4 rounded-lg bg-gray-50 card">
+                    <h3 class="text-sm font-bold text-gray-500 uppercase">Most Common Issues</h3>
+                    <div id="commonReasons" class="mt-2 text-sm font-medium space-y-2">
+                    </div>
+                </div>
+            </div>
+
+            <div class="mb-4 flex flex-col md:flex-row md:items-center md:space-x-4 space-y-4 md:space-y-0">
+                <div class="w-full">
+                    <canvas id="statusChart"></canvas>
+                </div>
+                <div class="relative w-full">
+                    <input type="text" id="logSearch" class="w-full p-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-teal-400 transition pr-10" placeholder="Search prompts...">
+                    <button id="clearSearchBtn" class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition hidden">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <div id="logsContainer" class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200 rounded-lg overflow-hidden">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Prompt</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reasons</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                        </tr>
+                    </thead>
+                    <tbody id="logsTableBody" class="bg-white divide-y divide-gray-200">
+                    </tbody>
+                </table>
+            </div>
+            <p id="noLogsMsg" class="text-center text-gray-500 mt-4 hidden">No prompts have been checked yet.</p>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div class="toast-container">
+        <div id="toast" class="toast"></div>
+    </div>
+    
+    <!-- Blocked Prompt Modal -->
+    <div id="blockedModal" class="modal">
+        <div class="modal-content card p-8">
+            <span class="close-button" id="closeModalBtn">&times;</span>
+            <div class="text-center mb-6">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-rose-500 mx-auto mb-4 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <h2 class="text-3xl font-bold text-rose-600">Prompt Blocked!</h2>
+                <p class="text-gray-500 mt-2">This prompt was automatically blocked by the compliance system.</p>
+            </div>
+            <div id="modalPromptText" class="bg-gray-100 p-4 rounded-lg text-sm text-gray-700 font-mono mb-4"></div>
+            <div class="mb-6">
+                <h3 class="font-semibold text-gray-700">Reasons for blocking:</h3>
+                <ul id="modalReasonsList" class="mt-2 text-sm text-gray-600 space-y-2"></ul>
+            </div>
+            <button id="modalOkBtn" class="w-full bg-rose-500 text-white font-semibold py-3 rounded-lg hover:bg-rose-600 transition">OK, I understand</button>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://127.0.0.1:8000';
+
+        // DOM Elements
+        const checkerSection = document.getElementById('checkerSection');
+        const logsSection = document.getElementById('logsSection');
+        const showCheckerBtn = document.getElementById('showCheckerBtn');
+        const showLogsBtn = document.getElementById('showLogsBtn');
+        const submitBtn = document.getElementById('submitBtn');
+        const promptInput = document.getElementById('promptInput');
+        const resultsDiv = document.getElementById('results');
+        const statusBox = document.getElementById('statusBox');
+        const statusText = document.getElementById('statusText');
+        const reasonsList = document.getElementById('reasonsList');
+        const loadingDiv = document.getElementById('loading');
+        const errorMessageDiv = document.getElementById('errorMessage');
+        const errorText = document.getElementById('errorText');
+        const logsTableBody = document.getElementById('logsTableBody');
+        const noLogsMsg = document.getElementById('noLogsMsg');
+        const refreshLogsBtn = document.getElementById('refreshLogsBtn');
+        const downloadLogsBtn = document.getElementById('downloadLogsBtn');
+        const logSearchInput = document.getElementById('logSearch');
+        const clearSearchBtn = document.getElementById('clearSearchBtn');
+        const refreshLogsText = document.getElementById('refreshLogsText');
+        const toast = document.getElementById('toast');
+        const totalCount = document.getElementById('totalCount');
+        const safeCount = document.getElementById('safeCount');
+        const flaggedCount = document.getElementById('flaggedCount');
+        const blockedCount = document.getElementById('blockedCount');
+        const commonReasonsContainer = document.getElementById('commonReasons');
+        const statusChartCanvas = document.getElementById('statusChart');
+        const blockedModal = document.getElementById('blockedModal');
+        const closeModalBtn = document.getElementById('closeModalBtn');
+        const modalOkBtn = document.getElementById('modalOkBtn');
+        const modalPromptText = document.getElementById('modalPromptText');
+        const modalReasonsList = document.getElementById('modalReasonsList');
+        const redactedSection = document.getElementById('redactedSection');
+        const redactedText = document.getElementById('redactedText');
+        const updateModeBtn = document.getElementById('updateModeBtn');
+        const modeSelect = document.getElementById('modeSelect');
+        const currentModeText = document.getElementById('currentModeText');
+
+        let allLogs = [];
+        let statusChartInstance = null;
+        
+        const icons = {
+            pii: `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 8a6 6 0 11-12 0 6 6 0 0112 0zM7 8a3 3 0 116 0 3 3 0 01-6 0z" clip-rule="evenodd" /></svg>`,
+            toxic: `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 1.944A11.954 11.954 0 012.166 5.026a12.005 12.005 0 01-1.285 5.922c-.112.292-.102.61.028.895l.001.002.002.002a.998.998 0 00.758.455a12.027 12.027 0 015.33-.222a.998.998 0 00.868-.533 12.039 12.039 0 012.327-4.113.998.998 0 00-.012-1.32l-.001-.001a.998.998 0 00-1.305-.21z" clip-rule="evenodd" /><path d="M15 9.5a.5.5 0 01.5.5v2a.5.5 0 01-1 0v-2a.5.5 0 01.5-.5z" /><path d="M17.5 7a.5.5 0 000-1h-2a.5.5 0 000 1h2z" /></svg>`,
+            keyword: `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 4.293a1 1 0 011.414 0L10 8.586l3.293-3.293a1 1 0 111.414 1.414L11.414 10l3.293 3.293a1 1 0 01-1.414 1.414L10 11.414l-3.293 3.293a1 1 0 01-1.414-1.414L8.586 10 5.293 6.707a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>`
+        };
+
+        function getIcon(type) {
+            const baseType = type.split('_')[0];
+            return icons[baseType] || icons['keyword'];
+        }
+
+        function showSection(sectionId) {
+            checkerSection.classList.add('hidden');
+            logsSection.classList.add('hidden');
+            if (sectionId === 'checker') {
+                checkerSection.classList.remove('hidden');
+                showCheckerBtn.classList.add('bg-teal-600', 'text-white');
+                showCheckerBtn.classList.remove('bg-gray-200', 'text-gray-700');
+                showLogsBtn.classList.remove('bg-teal-600', 'text-white');
+                showLogsBtn.classList.add('bg-gray-200', 'text-gray-700');
+            } else {
+                logsSection.classList.remove('hidden');
+                showLogsBtn.classList.add('bg-teal-600', 'text-white');
+                showLogsBtn.classList.remove('bg-gray-200', 'text-gray-700');
+                showCheckerBtn.classList.remove('bg-teal-600', 'text-white');
+                showCheckerBtn.classList.add('bg-gray-200', 'text-gray-700');
+                fetchLogs();
+            }
+        }
+
+        function showToast(message, type = 'success') {
+            toast.textContent = message;
+            toast.className = `toast show toast-${type}`;
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+
+        submitBtn.addEventListener('click', async () => {
+            const prompt = promptInput.value.trim();
+            if (!prompt) {
+                showToast("Prompt cannot be empty.", 'error');
+                return;
+            }
+            loadingDiv.classList.remove('hidden');
+            resultsDiv.classList.add('hidden');
+            redactedSection.classList.add('hidden');
+            errorMessageDiv.classList.add('hidden');
+            submitBtn.disabled = true;
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/check_prompt`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ text: prompt })
+                });
+
+                const responseData = await response.json();
+                if (!response.ok) {
+                    throw new Error(responseData.detail || "An unknown error occurred.");
+                }
+
+                displayResult(responseData);
+                if (!logsSection.classList.contains('hidden')) {
+                    fetchLogs();
+                }
+
+            } catch (error) {
+                console.error("Error checking prompt:", error);
+                errorText.textContent = error.message;
+                errorMessageDiv.classList.remove('hidden');
+            } finally {
+                loadingDiv.classList.add('hidden');
+                submitBtn.disabled = false;
+            }
+        });
+        
+        updateModeBtn.addEventListener('click', async () => {
+            const selectedMode = modeSelect.value;
+            try {
+                const response = await fetch(`${API_BASE_URL}/update_mode`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ mode: selectedMode })
+                });
+                
+                const responseData = await response.json();
+                if (!response.ok) {
+                    throw new Error(responseData.detail || "Failed to update mode");
+                }
+                
+                currentModeText.textContent = selectedMode;
+                showToast(`Mode updated to ${selectedMode}!`, 'success');
+
+            } catch (error) {
+                console.error("Error updating mode:", error);
+                showToast(error.message, 'error');
+            }
+        });
+
+        function displayResult(data) {
+             resultsDiv.classList.remove('hidden');
+             statusText.textContent = data.status;
+             reasonsList.innerHTML = '';
+             
+             if (data.reasons && data.reasons.length > 0) {
+                 data.reasons.forEach(reason => {
+                     const span = document.createElement('span');
+                     span.className = `reason-badge reason-${reason.type}`;
+                     span.innerHTML = `${getIcon(reason.type)} ${reason.message}`;
+                     reasonsList.appendChild(span);
+                 });
+             } else {
+                 reasonsList.textContent = "No compliance issues detected.";
+             }
+
+             if (data.redacted_prompt) {
+                redactedText.textContent = data.redacted_prompt;
+                redactedSection.classList.remove('hidden');
+             } else {
+                redactedSection.classList.add('hidden');
+             }
+
+             statusBox.className = 'p-4 rounded-lg fade-in';
+             if (data.status === 'Safe') {
+                 statusBox.classList.add('status-safe');
+                 showToast("Prompt checked successfully!", 'success');
+             } else if (data.status === 'Flagged') {
+                 statusBox.classList.add('status-flagged');
+                 showToast("Prompt flagged for review.", 'success');
+             } else {
+                 statusBox.classList.add('status-blocked');
+                 showToast("Prompt blocked.", 'error');
+                 showBlockedModal(data);
+             }
+        }
+
+        function showBlockedModal(log) {
+            modalPromptText.textContent = log.prompt;
+            modalReasonsList.innerHTML = '';
+            log.reasons.forEach(reason => {
+                const li = document.createElement('li');
+                li.innerHTML = `<span class="reason-badge reason-${reason.type}">${getIcon(reason.type)} ${reason.message}</span>`;
+                modalReasonsList.appendChild(li);
+            });
+            blockedModal.style.display = 'flex';
+        }
+
+        function hideBlockedModal() {
+            blockedModal.style.display = 'none';
+        }
+
+        closeModalBtn.addEventListener('click', hideBlockedModal);
+        modalOkBtn.addEventListener('click', hideBlockedModal);
+        
+        async function fetchLogs() {
+            refreshLogsText.textContent = "Refreshing...";
+            try {
+                const response = await fetch(`${API_BASE_URL}/get_logs`);
+                if (!response.ok) throw new Error("Server failed to return logs.");
+                const data = await response.json();
+                allLogs = data.logs;
+                displayLogs(allLogs);
+                updateLogSummary(allLogs);
+            } catch (error) {
+                console.error("Error fetching logs:", error);
+                showToast("Failed to fetch logs.", "error");
+            } finally {
+                refreshLogsText.textContent = "Refresh";
+            }
+        }
+        
+        function renderStatusChart(logs) {
+            const statusCounts = logs.reduce((acc, log) => {
+                acc[log.status] = (acc[log.status] || 0) + 1;
+                return acc;
+            }, {});
+
+            if (statusChartInstance) statusChartInstance.destroy();
+
+            statusChartInstance = new Chart(statusChartCanvas, {
+                type: 'bar',
+                data: {
+                    labels: ['Safe', 'Flagged', 'Blocked'],
+                    datasets: [{
+                        label: 'Prompt Status Distribution',
+                        data: [statusCounts.Safe || 0, statusCounts.Flagged || 0, statusCounts.Blocked || 0],
+                        backgroundColor: ['rgba(16, 185, 129, 0.7)', 'rgba(245, 158, 11, 0.7)', 'rgba(239, 68, 68, 0.7)'],
+                        borderColor: ['rgba(16, 185, 129, 1)', 'rgba(245, 158, 11, 1)', 'rgba(239, 68, 68, 1)'],
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+                }
+            });
+        }
+
+        function updateLogSummary(logs) {
+            let safe = 0, flagged = 0, blocked = 0;
+            const reasonsCount = {};
+
+            logs.forEach(log => {
+                if (log.status === "Safe") safe++;
+                else if (log.status === "Flagged") flagged++;
+                else if (log.status === "Blocked") blocked++;
+                
+                const reasons = typeof log.reasons === 'string' ? JSON.parse(log.reasons) : log.reasons;
+                reasons.forEach(reason => {
+                    const key = reason.type;
+                    reasonsCount[key] = (reasonsCount[key] || 0) + 1;
+                });
+            });
+
+            totalCount.textContent = logs.length;
+            safeCount.textContent = safe;
+            flaggedCount.textContent = flagged;
+            blockedCount.textContent = blocked;
+
+            commonReasonsContainer.innerHTML = '';
+            const topReasons = Object.entries(reasonsCount).sort(([, a], [, b]) => b - a).slice(0, 3);
+            
+            if (topReasons.length > 0) {
+                 commonReasonsContainer.innerHTML = topReasons.map(([reason, count]) => `
+                     <p class="flex justify-between">
+                         <span class="text-gray-700">${reason.replace("_", " ")}:</span>
+                         <span class="font-semibold">${count}</span>
+                     </p>
+                 `).join('');
+            } else {
+                commonReasonsContainer.innerHTML = '<p class="text-gray-500">No issues detected.</p>';
+            }
+            
+            renderStatusChart(logs);
+        }
+
+        function displayLogs(logs) {
+            logsTableBody.innerHTML = '';
+            if (logs.length === 0) {
+                noLogsMsg.classList.remove('hidden');
+            } else {
+                noLogsMsg.classList.add('hidden');
+                logs.forEach((log, index) => {
+                    const row = document.createElement('tr');
+                    if (log.status === 'Blocked') row.classList.add('blocked-row');
+                    
+                    const promptCell = document.createElement('td');
+                    promptCell.className = 'px-6 py-4 whitespace-nowrap text-sm text-gray-900 truncate max-w-xs';
+                    promptCell.textContent = log.prompt.substring(0, 50) + (log.prompt.length > 50 ? '...' : '');
+                    promptCell.title = log.prompt;
+
+                    const statusCell = document.createElement('td');
+                    statusCell.className = 'px-6 py-4 whitespace-nowrap text-sm font-semibold';
+                    statusCell.textContent = log.status;
+                    statusCell.classList.add(
+                        log.status === 'Safe' ? 'text-green-600' :
+                        log.status === 'Flagged' ? 'text-yellow-600' : 'text-red-600'
+                    );
+
+                    const reasonsCell = document.createElement('td');
+                    reasonsCell.className = 'px-6 py-4 whitespace-nowrap text-sm text-gray-500';
+                    const reasons = typeof log.reasons === 'string' ? JSON.parse(log.reasons) : log.reasons;
+                    if (reasons.length > 0) {
+                        reasonsCell.innerHTML = `<span class="reason-badge reason-${reasons[0].type}">${getIcon(reasons[0].type)} ${reasons[0].type.replace("_", " ")}</span>` +
+                                                (reasons.length > 1 ? ` <span class="text-xs font-bold">+${reasons.length - 1}</span>` : '');
+                    } else {
+                        reasonsCell.textContent = 'None';
+                    }
+                    
+                    const dateCell = document.createElement('td');
+                    dateCell.className = 'px-6 py-4 whitespace-nowrap text-sm text-gray-500';
+                    dateCell.textContent = new Date(log.timestamp).toLocaleString();
+                    
+                    row.appendChild(promptCell);
+                    row.appendChild(statusCell);
+                    row.appendChild(reasonsCell);
+                    row.appendChild(dateCell);
+                    logsTableBody.appendChild(row);
+
+                    setTimeout(() => row.classList.add('fade-in'), index * 50);
+                });
+            }
+        }
+
+        logSearchInput.addEventListener('input', () => {
+            const searchTerm = logSearchInput.value.toLowerCase();
+            clearSearchBtn.classList.toggle('hidden', !searchTerm);
+            const filteredLogs = allLogs.filter(log => log.prompt.toLowerCase().includes(searchTerm));
+            displayLogs(filteredLogs);
+        });
+
+        clearSearchBtn.addEventListener('click', () => {
+            logSearchInput.value = '';
+            clearSearchBtn.classList.add('hidden');
+            displayLogs(allLogs);
+        });
+
+        let autoRefreshInterval = setInterval(fetchLogs, 15000);
+        refreshLogsBtn.addEventListener('click', () => {
+            clearInterval(autoRefreshInterval);
+            fetchLogs();
+            autoRefreshInterval = setInterval(fetchLogs, 15000);
+        });
+
+        downloadLogsBtn.addEventListener('click', () => {
+            const header = ["id", "prompt", "status", "reasons", "timestamp", "redacted_prompt"];
+            const csv = [
+                header.join(","),
+                ...allLogs.map(log => {
+                    const reasons = typeof log.reasons === 'string' ? JSON.parse(log.reasons) : log.reasons;
+                    return [
+                        log.id,
+                        `"${log.prompt.replace(/"/g, '""')}"`,
+                        log.status,
+                        `"${reasons.map(r => r.message).join('; ').replace(/"/g, '""')}"`,
+                        log.timestamp,
+                        `"${(log.redacted_prompt || '').replace(/"/g, '""')}"`
+                    ].join(',')
+                })
+            ].join('\n');
+
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            const url = URL.createObjectURL(blob);
+            link.setAttribute("href", url);
+            link.setAttribute("download", "compliance_logs.csv");
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        });
+
+        showCheckerBtn.addEventListener('click', () => showSection('checker'));
+        showLogsBtn.addEventListener('click', () => showSection('logs'));
+
+        document.addEventListener('DOMContentLoaded', () => {
+            showSection('checker');
+            fetchLogs();
+        });
+    </script>
+</body>
+</html>
+
