@@ -110,7 +110,7 @@ flowchart TD
 
 * B.Tech CSBS @ Panimalar Engineering College (2028)  
 * **LinkedIn:** [Sabarish R | LinkedIn](https://www.linkedin.com/in/sabarishr08/)  
-* **Email:** sabarishr08@example.com
+* **Email:** sabarish.edu2024@gmail.com
 
 ## **📜 License**
 
