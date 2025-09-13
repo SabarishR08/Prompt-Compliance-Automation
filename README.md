@@ -91,7 +91,6 @@ flowchart TD
 
 ## **🖥️ Demo Screenshots**
 
-*(Add UI screenshots here once ready)*
 
 * ✅ Prompt input UI  
 * ✅ Compliance results with redacted text  
