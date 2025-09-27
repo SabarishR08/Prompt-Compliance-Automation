@@ -7,40 +7,82 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 import functools
-# NEW: Import for CORS
+from contextlib import asynccontextmanager
+import google.generativeai as genai
+import os
 from fastapi.middleware.cors import CORSMiddleware
+from playsound import playsound
+import threading
+
+# Load environment variables
+from dotenv import load_dotenv
+load_dotenv()
+
+# --- ENV VARIABLES ---
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+ALERT_PII_PATH = os.getenv("ALERT_PII_PATH")
+ALERT_POLICY_PATH = os.getenv("ALERT_POLICY_PATH")
+
+
+def play_alert(file_path: str):
+    """Play alert sound in a separate thread so it doesn't block FastAPI."""
+    try:
+        threading.Thread(target=playsound, args=(file_path,), daemon=True).start()
+        print(f"🔊 Playing alert: {file_path}")
+    except Exception as e:
+        print(f"❌ Failed to play sound {file_path}: {e}")
 
 
 # NLP/ML Libraries
 import spacy
-from presidio_analyzer import AnalyzerEngine
+from presidio_analyzer import AnalyzerEngine, PatternRecognizer, Pattern
 from detoxify import Detoxify
-import torch
 
 # --- Setup and Initialization ---
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager to handle startup/shutdown gracefully."""
+    print("🚀 Starting app and loading ML models...")
 
-app = FastAPI()
+    try:
+        genai.configure(api_key=GEMINI_API_KEY)
+        print("✅ Gemini API configured successfully from .env")
+    except Exception as e:
+        print(f"❌ Error configuring Gemini API: {e}")
 
-# NEW: Add CORS middleware to allow requests from the browser
+    yield
+    print("🛑 Shutting down app. Closing DB connection...")
+    try:
+        conn.close()
+        print("✅ Database connection closed")
+    except Exception as e:
+        print(f"⚠️ Error closing DB connection: {e}")
+
+
+app = FastAPI(lifespan=lifespan)
+
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins for simplicity, can be restricted
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods (GET, POST, etc.)
-    allow_headers=["*"],  # Allows all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
+print("🌐 CORS middleware added")
 
-
-# Mount the static files (like index.html)
+# Mount static files
 app.mount("/static", StaticFiles(directory="."), name="static")
+print("📁 Static files mounted at /static")
 
-# Load settings from a JSON file for configurability
+# --- Load settings ---
 settings = {}
 try:
     with open("settings.json", "r") as f:
         settings = json.load(f)
-except FileNotFoundError:
-    print("settings.json not found. Using default settings.")
+        print("⚙️ Settings loaded from settings.json")
+except (FileNotFoundError, json.JSONDecodeError):
+    print("⚠️ settings.json not found or invalid, using defaults.")
     settings = {
         "toxicity_thresholds": {
             "toxicity": 0.5,
@@ -51,51 +93,44 @@ except FileNotFoundError:
             "identity_attack": 0.5
         },
         "flagged_keywords": ["confidential", "secret", "private data", "internal use"],
+        "blocked_keywords": ["password", "ssn", "credit card", "social security number", "token", "api key"],
         "max_prompt_length": 512,
-        "max_payload_size": 10240  # 10 KB in bytes
-    }
-except json.JSONDecodeError:
-    print("Invalid JSON in settings.json. Using default settings.")
-    settings = {
-        "toxicity_thresholds": {
-            "toxicity": 0.5,
-            "severe_toxicity": 0.5,
-            "obscene": 0.5,
-            "threat": 0.5,
-            "insult": 0.5,
-            "identity_attack": 0.5
-        },
-        "flagged_keywords": ["confidential", "secret", "private data", "internal use"],
-        "max_prompt_length": 512,
-        "max_payload_size": 10240  # 10 KB in bytes
+        "max_payload_size": 10240
     }
 
+# Extract settings
+TOXICITY_THRESHOLDS = settings["toxicity_thresholds"]
+FLAGGED_KEYWORDS = [kw.lower() for kw in settings.get("flagged_keywords", [])]
+BLOCKED_KEYWORDS = [kw.lower() for kw in settings.get("blocked_keywords", [])]
+MAX_PROMPT_LENGTH = settings["max_prompt_length"]
+MAX_PAYLOAD_SIZE = settings["max_payload_size"]
 
-# Initialize NLP/ML Models and Components
+# --- Initialize NLP/ML Models ---
 nlp_engine_loaded = False
 try:
-    # spaCy for basic NLP and keyword matching
     nlp = spacy.load("en_core_web_sm")
-    
-    # Presidio for PII detection
+    print("✅ SpaCy NLP model loaded")
+
     analyzer = AnalyzerEngine()
-    
-    # Detoxify for toxicity and offensive content
     detoxify_model = Detoxify('original')
+    print("✅ Detoxify model loaded")
+
+    # Custom ATM PIN recognizer
+    atm_pin_pattern = Pattern(name="ATM_PIN", regex=r"\b\d{4,6}\b", score=0.85)
+    atm_pin_recognizer = PatternRecognizer(
+        supported_entity="ATM_PIN",
+        patterns=[atm_pin_pattern]
+    )
+    analyzer.registry.add_recognizer(atm_pin_recognizer)
     nlp_engine_loaded = True
-    print("All ML models loaded successfully.")
+    print("✅ Presidio Analyzer initialized with custom ATM PIN recognizer")
 except Exception as e:
-    print(f"Error loading models: {e}")
-    # Fallback or error handling for model loading failures
+    print(f"❌ Error loading NLP/ML models: {e}")
     detoxify_model = None
 
-
-# Connect to SQLite database
+# --- Connect to SQLite ---
 conn = sqlite3.connect('logs.db', check_same_thread=False)
 cursor = conn.cursor()
-
-# Create logs table if it doesn't exist
-# MODIFIED: Added redacted_prompt column
 cursor.execute('''
     CREATE TABLE IF NOT EXISTS logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -103,22 +138,17 @@ cursor.execute('''
         status TEXT NOT NULL,
         reasons TEXT,
         timestamp TEXT NOT NULL,
-        redacted_prompt TEXT
+        redacted_prompt TEXT,
+        gemini_response TEXT
     )
 ''')
-# Add redacted_prompt column if it doesn't exist for backward compatibility
-try:
-    cursor.execute("ALTER TABLE logs ADD COLUMN redacted_prompt TEXT;")
-    conn.commit()
-    print("Added 'redacted_prompt' column to logs table.")
-except sqlite3.OperationalError:
-    # Column already exists, which is fine
-    pass
-
 conn.commit()
+print("🗄️ SQLite database connected and logs table ensured")
+
+# --- In-memory logs ---
+logs = []
 
 # --- Data Models ---
-
 class Prompt(BaseModel):
     text: str
 
@@ -131,174 +161,205 @@ class AnalysisResult(BaseModel):
     status: str
     reasons: List[Reason]
     redacted_prompt: Optional[str] = None
+    gemini_response: Optional[str] = None
 
-# NEW: Model for mode update
 class ModeUpdate(BaseModel):
     mode: str
 
 # --- Helper Functions ---
+def get_gemini_response(prompt: str) -> Optional[str]:
+    """Get response from Gemini API for safe prompts"""
+    try:
+        print("💬 Sending prompt to Gemini API...")
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        response = model.generate_content(prompt)
+        gemini_text = response.text
+        print(f"💡 Gemini response:\n{gemini_text}")
+        return gemini_text
+    except Exception as e:
+        print(f"❌ Error getting Gemini response: {e}")
+        return f"Error getting response from Gemini API: {str(e)}"
+
 
 @functools.lru_cache(maxsize=128)
 def analyze_prompt(prompt: str) -> Dict[str, Any]:
-    """
-    Performs a series of checks on the input prompt.
-    Returns the status, a list of reasons, and a redacted version of the prompt.
-    """
+    print(f"🔍 Analyzing prompt: {prompt[:50]}...")
     status = "Safe"
     reasons = []
     redacted_prompt = prompt
-    
-    if len(prompt) > settings["max_prompt_length"]:
-        reasons.append({"type": "warning", "message": f"Prompt length exceeds recommended limit of {settings['max_prompt_length']} characters. Result may be less accurate."})
+    gemini_response = None
+
+    if len(prompt) > MAX_PROMPT_LENGTH:
+        reasons.append({"type": "warning", "message": f"Prompt length exceeds {MAX_PROMPT_LENGTH} chars."})
+        print("⚠️ Prompt exceeds maximum length")
 
     if not nlp_engine_loaded:
-        reasons.append({"type": "error", "message": "ML/NLP models failed to load. Only keyword checks are active."})
-        return {"status": "Flagged", "reasons": reasons, "redacted_prompt": redacted_prompt}
+        reasons.append({"type": "error", "message": "ML/NLP models failed to load."})
+        print("❌ ML/NLP models not loaded")
+        return {"status": "Flagged", "reasons": reasons, "redacted_prompt": redacted_prompt, "gemini_response": gemini_response}
 
-    # 1. Rule-Based Check (Simple Keyword/Regex)
-    keywords = settings.get("flagged_keywords", [])
-    if any(keyword in prompt.lower() for keyword in keywords):
-        reasons.append({"type": "keyword", "message": "Contains a flagged keyword."})
-        status = "Flagged"
+    # Keyword checks
+    lower_text = prompt.lower()
+    for kw in BLOCKED_KEYWORDS:
+        if kw in lower_text:
+            reasons.append({"type": "blocked", "message": f"Blocked keyword detected: {kw}"})
+            status = "Blocked"
+            print(f"⛔ Blocked keyword detected: {kw}")
 
-    # 2. PII Detection (using Presidio)
+    for kw in FLAGGED_KEYWORDS:
+        if kw in lower_text and status == "Safe":
+            reasons.append({"type": "flagged", "message": f"Flagged keyword detected: {kw}"})
+            status = "Flagged"
+            print(f"⚠️ Flagged keyword detected: {kw}")
+
+    # PII detection
     try:
         results = analyzer.analyze(text=prompt, language="en")
         if results:
             pii_entities = sorted(list(set([res.entity_type for res in results])))
-            reasons.append({"type": "pii", "message": f"Contains Personal Identifiable Information (PII): {', '.join(pii_entities)}."})
-            
-            # Redact the prompt
-            redacted_prompt = prompt
-            for res in reversed(results): # Reverse to avoid index shifting
-                redacted_prompt = redacted_prompt[:res.start] + f"[{res.entity_type}]" + redacted_prompt[res.end:]
-            
-            if "PHONE_NUMBER" in pii_entities or "CREDIT_CARD" in pii_entities:
-                if status != "Blocked":
+            if pii_entities:
+                reasons.append({"type": "pii", "message": f"Contains PII: {', '.join(pii_entities)}."})
+                print(f"🛡️ PII detected: {pii_entities}")
+                for res in reversed(results):
+                    redacted_prompt = redacted_prompt[:res.start] + f"[{res.entity_type}]" + redacted_prompt[res.end:]
+                if any(ent in pii_entities for ent in ["PHONE_NUMBER", "CREDIT_CARD", "ATM_PIN"]):
                     status = "Blocked"
-            else:
-                if status == "Safe":
-                    status = "Flagged"
     except Exception as e:
-        print(f"Error during PII analysis: {e}")
         reasons.append({"type": "error", "message": "PII analysis failed."})
+        print(f"❌ PII analysis failed: {e}")
 
-    # 3. Toxicity/Hate Speech Detection (using Detoxify)
+    # Toxicity detection
     if detoxify_model:
         try:
-            results = detoxify_model.predict(prompt)
-            
-            for label, score in results.items():
-                if label in settings["toxicity_thresholds"]:
-                    threshold = settings["toxicity_thresholds"][label]
+            tox_results = detoxify_model.predict(prompt)
+            for label, score in tox_results.items():
+                if label in TOXICITY_THRESHOLDS:
+                    threshold = TOXICITY_THRESHOLDS[label]
                     if score > threshold:
                         reasons.append({"type": "toxic", "message": f"Detected '{label}' with score {score:.2f}."})
-                        if label == "severe_toxicity" or label == "threat":
-                            if status != "Blocked":
-                                status = "Blocked"
-                        else:
-                            if status == "Safe":
-                                status = "Flagged"
+                        print(f"☣️ Toxicity detected: {label} score={score:.2f}")
+                        if label in ["severe_toxicity", "threat"]:
+                            status = "Blocked"
+                        elif status == "Safe":
+                            status = "Flagged"
         except Exception as e:
-            print(f"Error during toxicity analysis: {e}")
             reasons.append({"type": "error", "message": "Toxicity analysis failed."})
+            print(f"❌ Toxicity analysis failed: {e}")
 
-    return {"status": status, "reasons": reasons, "redacted_prompt": redacted_prompt if redacted_prompt != prompt else None}
+    # Audio alerts
+    if status == "Blocked":
+        if any(r["type"] == "pii" for r in reasons):
+            play_alert(ALERT_PII_PATH)
+        else:
+            play_alert(ALERT_POLICY_PATH)
+    elif status == "Flagged":
+        play_alert(ALERT_POLICY_PATH)
 
-def log_result(prompt: str, status: str, reasons: List[Dict[str, str]], redacted_prompt: Optional[str]):
-    """Logs the result of the prompt check to the database."""
+    # Gemini response if safe
+    if status == "Safe" and prompt.strip():
+        print(f"💡 Prompt is safe, sending to Gemini for response...")
+        gemini_response = get_gemini_response(prompt)
+
+    print(f"✅ Analysis complete. Status: {status}")
+    return {
+        "status": status,
+        "reasons": reasons,
+        "redacted_prompt": redacted_prompt if redacted_prompt != prompt else None,
+        "gemini_response": gemini_response
+    }
+
+
+def log_result(prompt: str, status: str, reasons: List[Dict[str, str]], redacted_prompt: Optional[str], gemini_response: Optional[str]):
     try:
         timestamp = datetime.now().isoformat()
-        reasons_str = json.dumps(reasons)
         cursor.execute(
-            "INSERT INTO logs (prompt, status, reasons, timestamp, redacted_prompt) VALUES (?, ?, ?, ?, ?)",
-            (prompt, status, reasons_str, timestamp, redacted_prompt)
+            "INSERT INTO logs (prompt, status, reasons, timestamp, redacted_prompt, gemini_response) VALUES (?, ?, ?, ?, ?, ?)",
+            (prompt, status, json.dumps(reasons), timestamp, redacted_prompt, gemini_response)
         )
         conn.commit()
+        logs.append({
+            "prompt": prompt,
+            "status": status,
+            "reasons": reasons,
+            "redacted_prompt": redacted_prompt,
+            "gemini_response": gemini_response,
+            "timestamp": timestamp
+        })
+        print(f"📝 Logged prompt to DB. Status: {status}")
     except Exception as e:
-        print(f"Failed to log to database: {e}")
+        print(f"❌ Failed to log to DB: {e}")
+
 
 # --- API Endpoints ---
-
 @app.get("/", response_class=HTMLResponse)
 async def serve_frontend():
-    """Serves the main HTML page."""
+    print("📄 Serving index.html")
     with open("index.html", "r") as f:
         return f.read()
 
 @app.post("/check_prompt")
 async def check_prompt_endpoint(prompt_data: Prompt, request: Request) -> AnalysisResult:
-    """
-    API endpoint to receive a prompt, analyze it, and return the result.
-    Checks for maximum payload size to prevent abuse.
-    """
-    # Check for max payload size
     content_length = request.headers.get("Content-Length")
-    if content_length and int(content_length) > settings.get("max_payload_size", 10240):
-        raise HTTPException(status_code=413, detail=f"Request payload size exceeds the maximum limit of {settings.get('max_payload_size', 10240)} bytes.")
-
-    analysis_result = analyze_prompt(prompt_data.text)
+    if content_length and int(content_length) > MAX_PAYLOAD_SIZE:
+        print(f"⚠️ Payload too large: {content_length} bytes")
+        raise HTTPException(status_code=413, detail="Request payload size exceeds limit.")
     
-    # Log the result before sending the response
-    log_result(prompt_data.text, analysis_result["status"], analysis_result["reasons"], analysis_result.get("redacted_prompt"))
+    result = analyze_prompt(prompt_data.text)
+    log_result(prompt_data.text, result["status"], result["reasons"], result.get("redacted_prompt"), result.get("gemini_response"))
     
     return AnalysisResult(
         prompt=prompt_data.text,
-        status=analysis_result["status"],
-        reasons=analysis_result["reasons"],
-        redacted_prompt=analysis_result.get("redacted_prompt")
+        status=result["status"],
+        reasons=result["reasons"],
+        redacted_prompt=result.get("redacted_prompt"),
+        gemini_response=result.get("gemini_response")
     )
 
 @app.get("/get_logs")
 async def get_logs_endpoint():
-    """
-    API endpoint to retrieve all logged prompt checks.
-    """
+    print("📊 Fetching logs from DB")
     try:
-        # MODIFIED: Select new redacted_prompt column
-        cursor.execute("SELECT id, prompt, status, reasons, timestamp, redacted_prompt FROM logs ORDER BY id DESC")
-        log_entries = cursor.fetchall()
-        
-        # Convert the fetched data into a list of dictionaries for JSON response
-        logs_list = []
-        for entry in log_entries:
-            logs_list.append({
-                "id": entry[0],
-                "prompt": entry[1],
-                "status": entry[2],
-                "reasons": json.loads(entry[3]),
-                "timestamp": entry[4],
-                "redacted_prompt": entry[5]
-            })
-            
+        cursor.execute("SELECT id, prompt, status, reasons, timestamp, redacted_prompt, gemini_response FROM logs ORDER BY id DESC")
+        logs_list = [
+            {
+                "id": e[0], 
+                "prompt": e[1], 
+                "status": e[2], 
+                "reasons": json.loads(e[3]),
+                "timestamp": e[4], 
+                "redacted_prompt": e[5],
+                "gemini_response": e[6]
+            } for e in cursor.fetchall()
+        ]
+        print(f"✅ {len(logs_list)} logs fetched")
         return {"logs": logs_list}
     except Exception as e:
-        print(f"Failed to retrieve logs: {e}")
+        print(f"❌ Failed to fetch logs: {e}")
         return {"logs": []}
 
-# NEW: Endpoint to handle mode updates
+@app.post("/clear_logs")
+async def clear_logs():
+    global logs
+    logs = []
+    try:
+        cursor.execute("DELETE FROM logs")
+        conn.commit()
+        print("🧹 All logs cleared")
+    except Exception as e:
+        print(f"❌ Failed to clear DB logs: {e}")
+        raise HTTPException(status_code=500, detail="Failed to clear DB logs")
+    return {"detail": "All logs cleared"}
+
 @app.post("/update_mode")
 async def update_mode(mode_data: ModeUpdate):
-    """
-    API endpoint to update the current operational mode.
-    In a real application, this would change server-side behavior.
-    """
-    mode = mode_data.mode
-    # For now, we just print it to the console.
-    print(f"Compliance mode updated to: {mode}")
-    # You could store this in a global variable or a settings file.
-    return {"message": f"Mode successfully updated to {mode}"}
-
+    print(f"⚙️ Compliance mode updated to: {mode_data.mode}")
+    return {"message": f"Mode successfully updated to {mode_data.mode}"}
 
 @app.get("/get_settings")
 async def get_settings_endpoint():
-    """
-    API endpoint to retrieve current settings for the frontend.
-    """
+    print("⚙️ Returning current settings")
     return settings
 
-# Simple route to serve the favicon
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
     return ""
-

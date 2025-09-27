@@ -17,6 +17,8 @@
   ],
   "blocked_keywords": [
     "password",
+    "passkey",
+    "passcode",
     "ssn",
     "credit card",
     "social security number",
@@ -24,5 +26,6 @@
     "api key"
   ],
   "max_prompt_length": 256,
-  "max_payload_size": 5120
+  "max_payload_size": 5120,
+  "suggested_prompt_template": "Could you provide a safe version without personal info?"
 }

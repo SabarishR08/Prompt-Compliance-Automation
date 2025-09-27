@@ -10,7 +10,7 @@
     <style>
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #f1f5f9; /* slate-100 */
+            background-color: #f1f5f9;
         }
         .container { max-width: 800px; }
         .card {
@@ -18,15 +18,14 @@
             border-radius: 1rem;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.08);
         }
-        /* NEW: Updated Status Colors */
-        .status-safe { background-color: #a7f3d0; color: #047857; } /* emerald-200, emerald-700 */
-        .status-flagged { background-color: #fde68a; color: #a16207; } /* amber-200, amber-700 */
-        .status-blocked { background-color: #fecdd3; color: #be123c; } /* rose-200, rose-700 */
+        .status-safe { background-color: #a7f3d0; color: #047857; }
+        .status-flagged { background-color: #fde68a; color: #a16207; }
+        .status-blocked { background-color: #fecdd3; color: #be123c; }
         .loading-spinner {
             border: 4px solid rgba(0, 0, 0, 0.1);
             width: 36px; height: 36px;
             border-radius: 50%;
-            border-left-color: #0d9488; /* teal-600 */
+            border-left-color: #0d9488;
             animation: spin 1s ease infinite;
         }
         @keyframes spin {
@@ -47,14 +46,12 @@
         .reason-toxic { background-color: #fed7aa; color: #9a3412; }
         .reason-warning { background-color: #fef08a; color: #854d0e; }
         .reason-error { background-color: #fecdd3; color: #be123c; }
-
         .fade-in {
             animation: fadeIn 0.5s ease-in-out forwards;
             opacity: 0;
             transform: translateY(10px);
         }
         @keyframes fadeIn { to { opacity: 1; transform: translateY(0); } }
-        
         .toast-container { position: fixed; bottom: 1rem; right: 1rem; z-index: 50; }
         .toast {
             padding: 0.75rem 1.25rem;
@@ -65,18 +62,17 @@
             transform: translateY(20px);
         }
         .toast.show { opacity: 1; transform: translateY(0); display: block; }
-        .toast-success { background-color: #0d9488; } /* teal-600 */
-        .toast-error { background-color: #e11d48; } /* rose-600 */
-
+        .toast-success { background-color: #0d9488; }
+        .toast-error { background-color: #e11d48; }
         .blocked-row {
             border-left-width: 8px;
-            border-left-color: #e11d48; /* rose-600 */
+            border-left-color: #e11d48;
             animation: blocked-highlight 1.5s ease-in-out forwards;
         }
         @keyframes blocked-highlight {
-            0% { transform: scale(1); background-color: #ffe4e6; } /* rose-50 */
-            50% { transform: scale(1.02); background-color: #fecdd3; } /* rose-200 */
-            100% { transform: scale(1); background-color: #ffe4e6; } /* rose-50 */
+            0% { transform: scale(1); background-color: #ffe4e6; }
+            50% { transform: scale(1.02); background-color: #fecdd3; }
+            100% { transform: scale(1); background-color: #ffe4e6; }
         }
         .modal {
             display: none; position: fixed; z-index: 100;
@@ -97,6 +93,66 @@
             position: absolute; top: 1rem; right: 1rem;
             font-size: 1.5rem; font-weight: bold; color: #9ca3af;
             cursor: pointer;
+        }
+        .audio-controls {
+            position: fixed;
+            bottom: 1rem;
+            left: 1rem;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 0.5rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            z-index: 40;
+        }
+        .audio-toggle {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.875rem;
+            color: #4b5563;
+        }
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 40px;
+            height: 20px;
+        }
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 20px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 16px;
+            width: 16px;
+            left: 2px;
+            bottom: 2px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider {
+            background-color: #0d9488;
+        }
+        input:checked + .slider:before {
+            transform: translateX(20px);
+        }
+        .gemini-response {
+            background-color: #f0f9ff;
+            border-left: 4px solid #0ea5e9;
         }
     </style>
 </head>
@@ -150,6 +206,10 @@
                 <div id="redactedSection" class="mt-4 hidden">
                     <h4 class="font-bold text-md text-gray-700">Redacted Prompt:</h4>
                     <p id="redactedText" class="p-3 mt-2 rounded-lg bg-gray-100 text-gray-800 font-mono text-sm"></p>
+                </div>
+                <div id="geminiResponseSection" class="mt-4 hidden gemini-response">
+                    <h4 class="font-bold text-md text-gray-700">Gemini Response:</h4>
+                    <p id="geminiResponseText" class="p-3 mt-2 rounded-lg bg-blue-50 text-gray-800 font-mono text-sm"></p>
                 </div>
             </div>
         </div>
@@ -251,6 +311,25 @@
         </div>
     </div>
 
+    <!-- Audio Elements -->
+    <audio id="piiAudio" preload="auto">
+        <source src="https://assets.mixkit.co/sfx/preview/mixkit-alarm-digital-clock-beep-989.mp3" type="audio/mpeg">
+    </audio>
+    <audio id="policyAudio" preload="auto">
+        <source src="https://assets.mixkit.co/sfx/preview/mixkit-warning-alarm-buzzer-991.mp3" type="audio/mpeg">
+    </audio>
+    
+    <!-- Audio Controls -->
+    <div class="audio-controls">
+        <div class="audio-toggle">
+            <span>Audio Alerts:</span>
+            <label class="toggle-switch">
+                <input type="checkbox" id="audioToggle" checked>
+                <span class="slider"></span>
+            </label>
+        </div>
+    </div>
+
     <script>
         const API_BASE_URL = 'http://127.0.0.1:8000';
 
@@ -289,12 +368,18 @@
         const modalReasonsList = document.getElementById('modalReasonsList');
         const redactedSection = document.getElementById('redactedSection');
         const redactedText = document.getElementById('redactedText');
+        const geminiResponseSection = document.getElementById('geminiResponseSection');
+        const geminiResponseText = document.getElementById('geminiResponseText');
         const updateModeBtn = document.getElementById('updateModeBtn');
         const modeSelect = document.getElementById('modeSelect');
         const currentModeText = document.getElementById('currentModeText');
+        const piiAudio = document.getElementById('piiAudio');
+        const policyAudio = document.getElementById('policyAudio');
+        const audioToggle = document.getElementById('audioToggle');
 
         let allLogs = [];
         let statusChartInstance = null;
+        let audioEnabled = true;
         
         const icons = {
             pii: `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 8a6 6 0 11-12 0 6 6 0 0112 0zM7 8a3 3 0 116 0 3 3 0 01-6 0z" clip-rule="evenodd" /></svg>`,
@@ -334,8 +419,27 @@
             }, 3000);
         }
 
+        // Audio alert function
+        function playAudioAlert(data) {
+            if (!audioEnabled) return;
+            
+            // Reset audio elements
+            piiAudio.pause();
+            piiAudio.currentTime = 0;
+            policyAudio.pause();
+            policyAudio.currentTime = 0;
+            
+            // Play appropriate audio based on status and reasons
+            if (data.status === "Flagged") {
+                policyAudio.play().catch(e => console.log("Audio play failed:", e));
+            } else if (data.reasons && data.reasons.some(r => r.type === "pii" || r.type === "toxic")) {
+                piiAudio.play().catch(e => console.log("Audio play failed:", e));
+            }
+            // Safe prompts don't play any audio
+        }
+
         submitBtn.addEventListener('click', async () => {
-            const prompt = promptInput.value.trim();
+            const prompt = promptInput.value.trim().replace(/\s+/g, ' ');
             if (!prompt) {
                 showToast("Prompt cannot be empty.", 'error');
                 return;
@@ -343,6 +447,7 @@
             loadingDiv.classList.remove('hidden');
             resultsDiv.classList.add('hidden');
             redactedSection.classList.add('hidden');
+            geminiResponseSection.classList.add('hidden');
             errorMessageDiv.classList.add('hidden');
             submitBtn.disabled = true;
 
@@ -353,12 +458,20 @@
                     body: JSON.stringify({ text: prompt })
                 });
 
-                const responseData = await response.json();
+                let responseData;
+                try {
+                    responseData = await response.json();
+                } catch (parseError) {
+                    throw new Error("Invalid server response");
+                }
+
                 if (!response.ok) {
                     throw new Error(responseData.detail || "An unknown error occurred.");
                 }
 
                 displayResult(responseData);
+                playAudioAlert(responseData); // Play audio alert
+                
                 if (!logsSection.classList.contains('hidden')) {
                     fetchLogs();
                 }
@@ -382,7 +495,13 @@
                     body: JSON.stringify({ mode: selectedMode })
                 });
                 
-                const responseData = await response.json();
+                let responseData;
+                try {
+                    responseData = await response.json();
+                } catch (parseError) {
+                    throw new Error("Invalid server response");
+                }
+                
                 if (!response.ok) {
                     throw new Error(responseData.detail || "Failed to update mode");
                 }
@@ -397,50 +516,62 @@
         });
 
         function displayResult(data) {
-             resultsDiv.classList.remove('hidden');
-             statusText.textContent = data.status;
-             reasonsList.innerHTML = '';
-             
-             if (data.reasons && data.reasons.length > 0) {
-                 data.reasons.forEach(reason => {
-                     const span = document.createElement('span');
-                     span.className = `reason-badge reason-${reason.type}`;
-                     span.innerHTML = `${getIcon(reason.type)} ${reason.message}`;
-                     reasonsList.appendChild(span);
-                 });
-             } else {
-                 reasonsList.textContent = "No compliance issues detected.";
-             }
+            resultsDiv.classList.remove('hidden');
+            statusText.textContent = data.status;
+            reasonsList.innerHTML = '';
+            
+            // Apply appropriate status styling
+            statusBox.className = 'p-4 rounded-lg fade-in';
+            if (data.status === 'Safe') {
+                statusBox.classList.add('status-safe');
+                showToast("Prompt checked successfully!", 'success');
+            } else if (data.status === 'Flagged') {
+                statusBox.classList.add('status-flagged');
+                showToast("Prompt flagged for review.", 'success');
+            } else {
+                statusBox.classList.add('status-blocked');
+                showToast("Prompt blocked.", 'error');
+                showBlockedModal(data);
+            }
+            
+            if (data.reasons && data.reasons.length > 0) {
+                data.reasons.forEach(reason => {
+                    const span = document.createElement('span');
+                    span.className = `reason-badge reason-${reason.type}`;
+                    span.innerHTML = `${getIcon(reason.type)} ${reason.message}`;
+                    reasonsList.appendChild(span);
+                });
+            } else {
+                reasonsList.textContent = "No compliance issues detected.";
+            }
 
-             if (data.redacted_prompt) {
+            // Handle redacted prompt
+            if (data.redacted_prompt) {
                 redactedText.textContent = data.redacted_prompt;
                 redactedSection.classList.remove('hidden');
-             } else {
+            } else {
                 redactedSection.classList.add('hidden');
-             }
+            }
 
-             statusBox.className = 'p-4 rounded-lg fade-in';
-             if (data.status === 'Safe') {
-                 statusBox.classList.add('status-safe');
-                 showToast("Prompt checked successfully!", 'success');
-             } else if (data.status === 'Flagged') {
-                 statusBox.classList.add('status-flagged');
-                 showToast("Prompt flagged for review.", 'success');
-             } else {
-                 statusBox.classList.add('status-blocked');
-                 showToast("Prompt blocked.", 'error');
-                 showBlockedModal(data);
-             }
+            // Handle Gemini response
+            if (data.gemini_response) {
+                geminiResponseText.textContent = data.gemini_response;
+                geminiResponseSection.classList.remove('hidden');
+            } else {
+                geminiResponseSection.classList.add('hidden');
+            }
         }
 
-        function showBlockedModal(log) {
-            modalPromptText.textContent = log.prompt;
+        function showBlockedModal(data) {
+            modalPromptText.textContent = promptInput.value;
             modalReasonsList.innerHTML = '';
-            log.reasons.forEach(reason => {
-                const li = document.createElement('li');
-                li.innerHTML = `<span class="reason-badge reason-${reason.type}">${getIcon(reason.type)} ${reason.message}</span>`;
-                modalReasonsList.appendChild(li);
-            });
+            if (data.reasons && data.reasons.length > 0) {
+                data.reasons.forEach(reason => {
+                    const li = document.createElement('li');
+                    li.innerHTML = `• ${reason.message}`;
+                    modalReasonsList.appendChild(li);
+                });
+            }
             blockedModal.style.display = 'flex';
         }
 
@@ -456,8 +587,15 @@
             try {
                 const response = await fetch(`${API_BASE_URL}/get_logs`);
                 if (!response.ok) throw new Error("Server failed to return logs.");
-                const data = await response.json();
-                allLogs = data.logs;
+                
+                let data;
+                try {
+                    data = await response.json();
+                } catch (parseError) {
+                    throw new Error("Invalid server response");
+                }
+                
+                allLogs = data.logs || [];
                 displayLogs(allLogs);
                 updateLogSummary(allLogs);
             } catch (error) {
@@ -505,10 +643,12 @@
                 else if (log.status === "Blocked") blocked++;
                 
                 const reasons = typeof log.reasons === 'string' ? JSON.parse(log.reasons) : log.reasons;
-                reasons.forEach(reason => {
-                    const key = reason.type;
-                    reasonsCount[key] = (reasonsCount[key] || 0) + 1;
-                });
+                if (reasons && Array.isArray(reasons)) {
+                    reasons.forEach(reason => {
+                        const key = reason.type;
+                        reasonsCount[key] = (reasonsCount[key] || 0) + 1;
+                    });
+                }
             });
 
             totalCount.textContent = logs.length;
@@ -559,9 +699,10 @@
                     const reasonsCell = document.createElement('td');
                     reasonsCell.className = 'px-6 py-4 whitespace-nowrap text-sm text-gray-500';
                     const reasons = typeof log.reasons === 'string' ? JSON.parse(log.reasons) : log.reasons;
-                    if (reasons.length > 0) {
-                        reasonsCell.innerHTML = `<span class="reason-badge reason-${reasons[0].type}">${getIcon(reasons[0].type)} ${reasons[0].type.replace("_", " ")}</span>` +
-                                                (reasons.length > 1 ? ` <span class="text-xs font-bold">+${reasons.length - 1}</span>` : '');
+                    if (reasons && reasons.length > 0) {
+                        const reasonTexts = reasons.map(r => r.message).join(', ');
+                        reasonsCell.innerHTML = `<span class="reason-badge reason-${reasons[0].type}" title="${reasonTexts}">${getIcon(reasons[0].type)} ${reasons[0].type.replace("_", " ")}</span>` +
+                                                (reasons.length > 1 ? ` <span class="text-xs font-bold" title="${reasonTexts}">+${reasons.length - 1}</span>` : '');
                     } else {
                         reasonsCell.textContent = 'None';
                     }
@@ -584,7 +725,9 @@
         logSearchInput.addEventListener('input', () => {
             const searchTerm = logSearchInput.value.toLowerCase();
             clearSearchBtn.classList.toggle('hidden', !searchTerm);
-            const filteredLogs = allLogs.filter(log => log.prompt.toLowerCase().includes(searchTerm));
+            const filteredLogs = allLogs.filter(log => 
+                log.prompt && log.prompt.toLowerCase().includes(searchTerm)
+            );
             displayLogs(filteredLogs);
         });
 
@@ -594,26 +737,24 @@
             displayLogs(allLogs);
         });
 
-        let autoRefreshInterval = setInterval(fetchLogs, 15000);
         refreshLogsBtn.addEventListener('click', () => {
-            clearInterval(autoRefreshInterval);
             fetchLogs();
-            autoRefreshInterval = setInterval(fetchLogs, 15000);
         });
 
         downloadLogsBtn.addEventListener('click', () => {
-            const header = ["id", "prompt", "status", "reasons", "timestamp", "redacted_prompt"];
+            const header = ["id", "prompt", "status", "reasons", "timestamp", "redacted_prompt", "gemini_response"];
             const csv = [
                 header.join(","),
                 ...allLogs.map(log => {
                     const reasons = typeof log.reasons === 'string' ? JSON.parse(log.reasons) : log.reasons;
                     return [
-                        log.id,
-                        `"${log.prompt.replace(/"/g, '""')}"`,
-                        log.status,
-                        `"${reasons.map(r => r.message).join('; ').replace(/"/g, '""')}"`,
-                        log.timestamp,
-                        `"${(log.redacted_prompt || '').replace(/"/g, '""')}"`
+                        log.id || '',
+                        `"${(log.prompt || '').replace(/"/g, '""')}"`,
+                        log.status || '',
+                        `"${(reasons || []).map(r => r.message).join('; ').replace(/"/g, '""')}"`,
+                        log.timestamp || '',
+                        `"${(log.redacted_prompt || '').replace(/"/g, '""')}"`,
+                        `"${(log.gemini_response || '').replace(/"/g, '""')}"`
                     ].join(',')
                 })
             ].join('\n');
@@ -628,6 +769,12 @@
             document.body.removeChild(link);
         });
 
+        // Audio toggle functionality
+        audioToggle.addEventListener('change', function() {
+            audioEnabled = this.checked;
+            showToast(`Audio alerts ${audioEnabled ? 'enabled' : 'disabled'}`, 'success');
+        });
+
         showCheckerBtn.addEventListener('click', () => showSection('checker'));
         showLogsBtn.addEventListener('click', () => showSection('logs'));
 
@@ -638,4 +785,3 @@
     </script>
 </body>
 </html>
-

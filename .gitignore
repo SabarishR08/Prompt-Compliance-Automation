@@ -1,3 +1,24 @@
+# Environment variables
+.env
+*.env
+
+# Python cache files
 __pycache__/
 *.pyc
-logs.db
+*.pyo
+*.pyd
+
+# SQLite database
+*.db
+
+# Virtual environment (if you create one later)
+venv/
+.env/
+.venv/
+
+# Logs
+*.log
+
+# OS-specific
+.DS_Store
+Thumbs.db
