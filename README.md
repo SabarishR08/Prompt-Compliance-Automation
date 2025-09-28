@@ -175,8 +175,7 @@ Our system could prevent such risks with proactive compliance filtering.
 
 ## **👨‍💻 Contributors**
 
-* **Sabarish R (Lead):** Backend, ML Integration, DB  
-* **Team Prompt Monks:** Frontend, Research, Documentation
+* **Sabarish R (Lead):**
 
 ## **📜 License**
 
