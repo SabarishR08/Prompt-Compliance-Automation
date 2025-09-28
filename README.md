@@ -175,7 +175,7 @@ Our system could prevent such risks with proactive compliance filtering.
 
 ## **👨‍💻 Contributors**
 
-* **Sabarish R (Lead):**
+* **Sabarish R (Lead)**
 
 ## **📜 License**
 
