@@ -2,7 +2,7 @@
 
 Prompt Compliance Automation is a **middleware solution** designed to help organizations securely leverage Large Language Models (LLMs) while rigorously protecting sensitive and confidential data.
 
-It automatically analyzes and moderates prompts to detect **toxic content**, **sensitive keywords**, and **Personally Identifiable Information (PII)**, ensuring that unsafe content is either redacted or blocked. This allows employees to safely continue using AI tools without risking **data leakage** or **regulatory non-compliance**.
+It automatically analyzes and moderates prompts to detect **toxic content**, **sensitive keywords**, and **Personally Identifiable Information (PII)**, ensuring that unsafe content is either redacted or blocked. This allows users to safely continue using AI tools without risking **data leakage** or **regulatory non-compliance**.
 
 ## **🚀 Hackathon Project – PEC Techathon 3.0 powered by Cognizant**
 
