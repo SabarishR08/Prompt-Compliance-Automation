@@ -80,7 +80,8 @@ Follow these steps to get the Prompt Compliance Automation service running local
 
 ### **1️⃣ Clone the repository**
 
-git clone \[https://github.com/SabarishR08/Prompt-Compliance-Automation.git\](https://github.com/SabarishR08/Prompt-Compliance-Automation.git)  
+git clone https://github.com/SabarishR08/Prompt-Compliance-Automation.git
+
 cd Prompt-Compliance-Automation
 
 ### **2️⃣ Create virtual environment & install dependencies**
