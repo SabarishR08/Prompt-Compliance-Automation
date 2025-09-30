@@ -137,13 +137,14 @@ Prompt-Compliance-Automation/
 
 ## **📊 Sample Workflow**
 
-1. **User submits a prompt.**  
+1. **User submits a prompt.**
+   ![UI](images/UI.jpeg)
 2. API checks: Blocked keywords, PII entities (via **Presidio**), and Toxicity scores (via **Detoxify**).  
 3. Prompt is classified as:  
-   * ✅ **Safe** → Forward to Gemini or local LLM, log response.  
+   * ✅ **Safe** → Forward to Gemini or local LLM, log response.  ![Safe Prompt](images/test_safe_response-received.jpeg)
    * ⚠️ **Flagged** → Redacted / Warning raised.  
-   * ⛔ **Blocked** → Rejected with alert sound.  
-4. Logs stored in **SQLite** for audits.
+   * ⛔ **Blocked** → Rejected with alert sound.  ![PII Blocked](images/test_pii_blocked.jpeg) ![Backend Process 1](images/Backend_process_1.jpeg) ![Toxic Prompt](images/test_toxicity_blocked.jpeg) ![Backend Process 2](images/Backend_process_2.jpeg)
+4. Logs stored in **SQLite** for audits.![Log Dashboard](images/Log_Dashboard.jpeg)
 
 **Future Enhancement:** Blocked/unsafe prompts can be suggested a safe rephrased prompt using a trained local middleware LLM before sending to external LLM servers (e.g., OpenAI).
 
