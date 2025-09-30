@@ -134,13 +134,39 @@ Prompt-Compliance-Automation/
 ## **📊 Sample Workflow**
 
 1. **User submits a prompt.**
-   ![UI](images/UI.jpeg)
+   <p></p>
+   <img src="images/UI.jpeg" alt="UI" width="600">
+   <p></p>
+
 2. API checks: Blocked keywords, PII entities (via **Presidio**), and Toxicity scores (via **Detoxify**).  
 3. Prompt is classified as:  
-   * ✅ **Safe** → Forward to Gemini or local LLM, log response.  ![Safe Prompt](images/test_safe_response-received.jpeg)
+   * ✅ **Safe** → Forward to Gemini or local LLM, log response.
+     <p></p>
+     <img src="images/test_safe_response-received.jpeg.jpeg" alt="test_safe_response-received" width="600">
+     <p></p>
    * ⚠️ **Flagged** → Redacted / Warning raised.  
-   * ⛔ **Blocked** → Rejected with alert sound.  ![PII Blocked](images/test_pii_blocked.jpeg) Backend Process ![Backend Process 1](images/Backend_process_1.jpeg) ![Toxic Prompt](images/test_toxicity_blocked.jpeg) Backend Process ![Backend Process 2](images/Backend_process_2.jpeg)
-4. Logs stored in **SQLite** for audits.![Log Dashboard](images/Log_Dashboard.jpeg)
+   * ⛔ **Blocked** → Rejected with alert sound.
+     <p>PII detected</p>
+     <img src="images/test_pii_blocked.jpeg" alt="PII Blocked" width="600">
+     <p>Prompt blocked</p>
+     
+     <p>Backend Process</p>
+     <img src="images/Backend_process_1.jpeg" alt="Backend Process" width="600">
+     <p></p>
+ 
+     <p>Toxicity detected</p>
+     <img src="images/test_toxicity_blocked.jpeg" alt="Toxic Prompt" width="600">
+     <p>Prompt blocked</p>
+     
+     <p>Backend Process</p>
+     <img src="images/Backend_process_2.jpeg" alt="Backend Process" width="600">
+     <p></p>
+4. Logs stored in **SQLite** for audits.
+   
+     <p>Backend Process</p>
+     <img src="images/Log_Dashboard.jpeg" alt="Log Dashboard" width="600">
+     <p></p>
+
 
 **Future Enhancement:** Blocked/unsafe prompts can be suggested a safe rephrased prompt using a trained local middleware LLM before sending to external LLM servers (e.g., OpenAI).
 
