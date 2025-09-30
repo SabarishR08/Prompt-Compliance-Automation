@@ -142,7 +142,7 @@ Prompt-Compliance-Automation/
 3. Prompt is classified as:  
    * ✅ **Safe** → Forward to Gemini or local LLM, log response.
      <p></p>
-     <img src="images/test_safe_response-received.jpeg.jpeg" alt="test_safe_response-received" width="600">
+     <img src="images/test_safe_response-received.jpeg" alt="test_safe_response-received" width="600">
      <p></p>
    * ⚠️ **Flagged** → Redacted / Warning raised.  
    * ⛔ **Blocked** → Rejected with alert sound.
