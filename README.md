@@ -4,10 +4,6 @@ Prompt Compliance Automation is a **middleware solution** designed to help organ
 
 It automatically analyzes and moderates prompts to detect **toxic content**, **sensitive keywords**, and **Personally Identifiable Information (PII)**, ensuring that unsafe content is either redacted or blocked. This allows users to safely continue using AI tools without risking **data leakage** or **regulatory non-compliance**.
 
-## **🚀 Hackathon Project – PEC Techathon 3.0 powered by Cognizant**
-
-Team: Prompt Monks  
-Sabarish R (lead)
 
 ## **📌 Problem Statement**
 
@@ -174,6 +170,11 @@ Our system could prevent such risks with proactive compliance filtering.
 * Cloud scaling with AWS / GCP.  
 * Middleware LLM for safe rephrasing: Suggest alternate safe prompts for blocked/unsafe inputs.  
 * Expand local LLM integration for response generation without exposing confidential data.
+
+## **🚀 Hackathon Project – PEC Techathon 3.0 powered by Cognizant**
+
+Team: Prompt Monks  
+Sabarish R (lead)
 
 ## **👨‍💻 Contributors**
 
