@@ -146,18 +146,24 @@ Prompt-Compliance-Automation/
      <p></p>
    * ⚠️ **Flagged** → Redacted / Warning raised.  
    * ⛔ **Blocked** → Rejected with alert sound.
-     <p>PII detected</p>
+     <p>PII detected -> Prompt blocked</p>
      <img src="images/test_pii_blocked.jpeg" alt="PII Blocked" width="600">
-     <p>Prompt blocked</p>
-     
+     <p></p>
+  
+
+   
      <p>Backend Process</p>
      <img src="images/Backend_process_1.jpeg" alt="Backend Process" width="600">
      <p></p>
+
+
  
-     <p>Toxicity detected</p>
+     <p>Toxicity detected -> Prompt blocked</p>
      <img src="images/test_toxicity_blocked.jpeg" alt="Toxic Prompt" width="600">
-     <p>Prompt blocked</p>
-     
+     <p></p>
+  
+
+   
      <p>Backend Process</p>
      <img src="images/Backend_process_2.jpeg" alt="Backend Process" width="600">
      <p></p>
