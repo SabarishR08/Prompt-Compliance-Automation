@@ -203,12 +203,6 @@ Our system could prevent such risks with proactive compliance filtering.
 * Middleware LLM for safe rephrasing: Suggest alternate safe prompts for blocked/unsafe inputs.  
 * Expand local LLM integration for response generation without exposing confidential data.
 
-## **🚀 Hackathon Project – PEC Techathon 3.0 powered by Cognizant**
-
-Team: Prompt Monks  
-Sabarish R (lead)
-
 ## **👨‍💻 Contributors**
 
-* **Sabarish R (Lead):** Backend, ML Integration, DB, Documentation
-* **Team :** Frontend, Research
+* **Sabarish R :** Backend, ML Integration, DB, Documentation, Frontend, Research
