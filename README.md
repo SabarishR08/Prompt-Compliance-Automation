@@ -212,7 +212,3 @@ Sabarish R (lead)
 
 * **Sabarish R (Lead):** Backend, ML Integration, DB, Documentation
 * **Team :** Frontend, Research
-
-## **📜 License**
-
-This project is licensed under the **MIT License**.
