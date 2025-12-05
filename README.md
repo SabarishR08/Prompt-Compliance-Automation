@@ -203,6 +203,10 @@ Our system could prevent such risks with proactive compliance filtering.
 * Middleware LLM for safe rephrasing: Suggest alternate safe prompts for blocked/unsafe inputs.  
 * Expand local LLM integration for response generation without exposing confidential data.
 
-## **👨‍💻 Contributors**
+## **✍️ Author & Contact**
 
-* **Sabarish R :** Backend, ML Integration, DB, Documentation, Frontend, Research
+This project was developed by a security operations enthusiast.
+
+* **Author:** Sabarish R.  
+* **Email:** your.email@example.com  
+* **LinkedIn:** [https://www.linkedin.com/in/sabarishr08](https://www.linkedin.com/in/sabarishr08)
