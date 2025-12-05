@@ -1,4 +1,4 @@
-# **🤖 Prompt Compliance Automation**
+# **Prompt Compliance Automation**
 
 Prompt Compliance Automation is a **middleware solution** designed to help organizations securely leverage Large Language Models (LLMs) while rigorously protecting sensitive and confidential data.
 
