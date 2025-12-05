@@ -208,5 +208,5 @@ Our system could prevent such risks with proactive compliance filtering.
 This project was developed by a security operations enthusiast.
 
 * **Author:** Sabarish R.  
-* **Email:** your.email@example.com  
+* **Email:** sabarish.edu2024@gmail.com
 * **LinkedIn:** [https://www.linkedin.com/in/sabarishr08](https://www.linkedin.com/in/sabarishr08)
