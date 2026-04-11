@@ -1,88 +1,159 @@
-import sqlite3
 import json
-from datetime import datetime
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
-from typing import List, Dict, Any, Optional
-import functools
-from contextlib import asynccontextmanager
-import google.generativeai as genai
+import logging
 import os
-from fastapi.middleware.cors import CORSMiddleware
-from playsound import playsound
+import sqlite3
 import threading
+from contextlib import asynccontextmanager
+from datetime import datetime
+from collections import defaultdict, deque
+from datetime import timezone
+from pathlib import Path
+from typing import Any, Dict, List, Literal, Optional
 
-# Load environment variables
+import google.generativeai as genai
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import HTMLResponse, Response
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+
 from dotenv import load_dotenv
+
 load_dotenv()
 
-# --- ENV VARIABLES ---
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-ALERT_PII_PATH = os.getenv("ALERT_PII_PATH")
-ALERT_POLICY_PATH = os.getenv("ALERT_POLICY_PATH")
+ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")
+ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("ALLOWED_ORIGINS", "http://127.0.0.1:8000,http://localhost:8000").split(",")
+    if origin.strip()
+]
+TRUSTED_HOSTS = [
+    host.strip()
+    for host in os.getenv("TRUSTED_HOSTS", "127.0.0.1,localhost").split(",")
+    if host.strip()
+]
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+logger = logging.getLogger("prompt-compliance")
+PROJECT_ROOT = Path(__file__).resolve().parent
+RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60"))
+RATE_LIMIT_MAX_REQUESTS = int(os.getenv("RATE_LIMIT_MAX_REQUESTS", "20"))
+request_buckets: Dict[str, deque[datetime]] = defaultdict(deque)
 
 
-def play_alert(file_path: str):
-    """Play alert sound in a separate thread so it doesn't block FastAPI."""
-    try:
-        threading.Thread(target=playsound, args=(file_path,), daemon=True).start()
-        print(f"🔊 Playing alert: {file_path}")
-    except Exception as e:
-        print(f"❌ Failed to play sound {file_path}: {e}")
+def get_client_identifier(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    if forwarded_for:
+        return forwarded_for
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown"
 
 
-# NLP/ML Libraries
-import spacy
-from presidio_analyzer import AnalyzerEngine, PatternRecognizer, Pattern
-from detoxify import Detoxify
+def enforce_rate_limit(request: Request) -> None:
+    client_id = get_client_identifier(request)
+    now = datetime.now(timezone.utc)
+    window_start = now.timestamp() - RATE_LIMIT_WINDOW_SECONDS
+    bucket = request_buckets[client_id]
 
-# --- Setup and Initialization ---
+    while bucket and bucket[0].timestamp() < window_start:
+        bucket.popleft()
+
+    if len(bucket) >= RATE_LIMIT_MAX_REQUESTS:
+        raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
+
+    bucket.append(now)
+
+
+def require_admin_key(request: Request) -> None:
+    if not ADMIN_API_KEY:
+        return
+
+    provided_key = request.headers.get("X-Admin-Key")
+    if provided_key != ADMIN_API_KEY:
+        raise HTTPException(status_code=401, detail="Admin API key is required.")
+
+
+try:
+    import spacy
+except Exception as exc:  # pragma: no cover - optional dependency
+    spacy = None
+    logger.warning("spaCy import failed: %s", exc)
+
+try:
+    from detoxify import Detoxify
+except Exception as exc:  # pragma: no cover - optional dependency
+    Detoxify = None
+    logger.warning("Detoxify import failed: %s", exc)
+
+try:
+    from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer
+except Exception as exc:  # pragma: no cover - optional dependency
+    AnalyzerEngine = None
+    Pattern = None
+    PatternRecognizer = None
+    logger.warning("Presidio import failed: %s", exc)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Lifespan context manager to handle startup/shutdown gracefully."""
-    print("🚀 Starting app and loading ML models...")
+    """Handle startup and shutdown tasks."""
+    logger.info("Starting service and loading models")
 
-    try:
+    if GEMINI_API_KEY:
         genai.configure(api_key=GEMINI_API_KEY)
-        print("✅ Gemini API configured successfully from .env")
-    except Exception as e:
-        print(f"❌ Error configuring Gemini API: {e}")
+        logger.info("Gemini API configured")
+    else:
+        logger.warning("GEMINI_API_KEY is not set; safe prompts will not be sent to Gemini")
 
     yield
-    print("🛑 Shutting down app. Closing DB connection...")
+
+    logger.info("Shutting down service")
     try:
         conn.close()
-        print("✅ Database connection closed")
+        logger.info("Database connection closed")
     except Exception as e:
-        print(f"⚠️ Error closing DB connection: {e}")
+        logger.warning("Error closing database connection: %s", e)
 
 
 app = FastAPI(lifespan=lifespan)
 
-# Add CORS middleware
+app.add_middleware(GZipMiddleware, minimum_size=1024)
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=TRUSTED_HOSTS)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-print("🌐 CORS middleware added")
+logger.info("CORS configured for %s", ALLOWED_ORIGINS)
+logger.info("Trusted hosts configured for %s", TRUSTED_HOSTS)
 
-# Mount static files
-app.mount("/static", StaticFiles(directory="."), name="static")
-print("📁 Static files mounted at /static")
 
-# --- Load settings ---
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+if (PROJECT_ROOT / "images").exists():
+    app.mount("/static/images", StaticFiles(directory=str(PROJECT_ROOT / "images")), name="images")
+logger.info("Static directories mounted")
+
 settings = {}
 try:
-    with open("settings.json", "r") as f:
+    with open(PROJECT_ROOT / "settings.json", "r", encoding="utf-8") as f:
         settings = json.load(f)
-        print("⚙️ Settings loaded from settings.json")
+        logger.info("Settings loaded from settings.json")
 except (FileNotFoundError, json.JSONDecodeError):
-    print("⚠️ settings.json not found or invalid, using defaults.")
+    logger.warning("settings.json missing or invalid, using defaults")
     settings = {
         "toxicity_thresholds": {
             "toxicity": 0.5,
@@ -95,43 +166,50 @@ except (FileNotFoundError, json.JSONDecodeError):
         "flagged_keywords": ["confidential", "secret", "private data", "internal use"],
         "blocked_keywords": ["password", "ssn", "credit card", "social security number", "token", "api key"],
         "max_prompt_length": 512,
-        "max_payload_size": 10240
+        "max_payload_size": 10240,
     }
 
-# Extract settings
-TOXICITY_THRESHOLDS = settings["toxicity_thresholds"]
+TOXICITY_THRESHOLDS = settings.get("toxicity_thresholds", {})
 FLAGGED_KEYWORDS = [kw.lower() for kw in settings.get("flagged_keywords", [])]
 BLOCKED_KEYWORDS = [kw.lower() for kw in settings.get("blocked_keywords", [])]
-MAX_PROMPT_LENGTH = settings["max_prompt_length"]
-MAX_PAYLOAD_SIZE = settings["max_payload_size"]
+MAX_PROMPT_LENGTH = int(settings.get("max_prompt_length", 512))
+MAX_PAYLOAD_SIZE = int(settings.get("max_payload_size", 10240))
 
-# --- Initialize NLP/ML Models ---
 nlp_engine_loaded = False
+analyzer = None
+detoxify_model = None
 try:
-    nlp = spacy.load("en_core_web_sm")
-    print("✅ SpaCy NLP model loaded")
+    if spacy is not None:
+        spacy.load("en_core_web_sm")
+        logger.info("SpaCy model loaded")
 
-    analyzer = AnalyzerEngine()
-    detoxify_model = Detoxify('original')
-    print("✅ Detoxify model loaded")
+    if AnalyzerEngine is not None:
+        analyzer = AnalyzerEngine()
+        logger.info("Presidio analyzer initialized")
 
-    # Custom ATM PIN recognizer
-    atm_pin_pattern = Pattern(name="ATM_PIN", regex=r"\b\d{4,6}\b", score=0.85)
-    atm_pin_recognizer = PatternRecognizer(
-        supported_entity="ATM_PIN",
-        patterns=[atm_pin_pattern]
-    )
-    analyzer.registry.add_recognizer(atm_pin_recognizer)
-    nlp_engine_loaded = True
-    print("✅ Presidio Analyzer initialized with custom ATM PIN recognizer")
+    if Detoxify is not None:
+        detoxify_model = Detoxify("original")
+        logger.info("Detoxify model loaded")
+
+    if analyzer is not None and Pattern is not None and PatternRecognizer is not None:
+        atm_pin_pattern = Pattern(name="ATM_PIN", regex=r"\b\d{4,6}\b", score=0.85)
+        atm_pin_recognizer = PatternRecognizer(supported_entity="ATM_PIN", patterns=[atm_pin_pattern])
+        analyzer.registry.add_recognizer(atm_pin_recognizer)
+
+    nlp_engine_loaded = analyzer is not None
 except Exception as e:
-    print(f"❌ Error loading NLP/ML models: {e}")
+    logger.warning("Model initialization failed: %s", e)
+    analyzer = None
     detoxify_model = None
 
-# --- Connect to SQLite ---
-conn = sqlite3.connect('logs.db', check_same_thread=False)
+conn = sqlite3.connect(PROJECT_ROOT / "logs.db", check_same_thread=False)
 cursor = conn.cursor()
-cursor.execute('''
+db_lock = threading.Lock()
+cursor.execute("PRAGMA journal_mode=WAL")
+cursor.execute("PRAGMA synchronous=NORMAL")
+cursor.execute("PRAGMA temp_store=MEMORY")
+cursor.execute(
+    '''
     CREATE TABLE IF NOT EXISTS logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         prompt TEXT NOT NULL,
@@ -141,16 +219,16 @@ cursor.execute('''
         redacted_prompt TEXT,
         gemini_response TEXT
     )
-''')
+'''
+)
 conn.commit()
-print("🗄️ SQLite database connected and logs table ensured")
+cursor.execute("CREATE INDEX IF NOT EXISTS idx_logs_status ON logs (status)")
+cursor.execute("CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs (timestamp)")
+conn.commit()
+logger.info("SQLite database ready")
 
-# --- In-memory logs ---
-logs = []
-
-# --- Data Models ---
 class Prompt(BaseModel):
-    text: str
+    text: str = Field(min_length=1, max_length=MAX_PROMPT_LENGTH)
 
 class Reason(BaseModel):
     type: str
@@ -164,71 +242,61 @@ class AnalysisResult(BaseModel):
     gemini_response: Optional[str] = None
 
 class ModeUpdate(BaseModel):
-    mode: str
+    mode: Literal["Default", "Custom", "Hybrid"]
 
-# --- Helper Functions ---
 def get_gemini_response(prompt: str) -> Optional[str]:
-    """Get response from Gemini API for safe prompts"""
+    if not GEMINI_API_KEY:
+        return None
+
     try:
-        print("💬 Sending prompt to Gemini API...")
-        model = genai.GenerativeModel('gemini-2.5-flash')
+        model = genai.GenerativeModel("gemini-2.5-flash")
         response = model.generate_content(prompt)
-        gemini_text = response.text
-        print(f"💡 Gemini response:\n{gemini_text}")
-        return gemini_text
+        return (response.text or "").strip() or None
     except Exception as e:
-        print(f"❌ Error getting Gemini response: {e}")
-        return f"Error getting response from Gemini API: {str(e)}"
+        logger.warning("Error getting Gemini response: %s", e)
+        return None
 
 
-@functools.lru_cache(maxsize=128)
 def analyze_prompt(prompt: str) -> Dict[str, Any]:
-    print(f"🔍 Analyzing prompt: {prompt[:50]}...")
+    logger.info("Analyzing prompt")
     status = "Safe"
-    reasons = []
+    reasons: List[Dict[str, str]] = []
     redacted_prompt = prompt
     gemini_response = None
 
     if len(prompt) > MAX_PROMPT_LENGTH:
         reasons.append({"type": "warning", "message": f"Prompt length exceeds {MAX_PROMPT_LENGTH} chars."})
-        print("⚠️ Prompt exceeds maximum length")
+        logger.info("Prompt length exceeds configured maximum")
 
     if not nlp_engine_loaded:
         reasons.append({"type": "error", "message": "ML/NLP models failed to load."})
-        print("❌ ML/NLP models not loaded")
         return {"status": "Flagged", "reasons": reasons, "redacted_prompt": redacted_prompt, "gemini_response": gemini_response}
 
-    # Keyword checks
     lower_text = prompt.lower()
     for kw in BLOCKED_KEYWORDS:
         if kw in lower_text:
             reasons.append({"type": "blocked", "message": f"Blocked keyword detected: {kw}"})
             status = "Blocked"
-            print(f"⛔ Blocked keyword detected: {kw}")
 
     for kw in FLAGGED_KEYWORDS:
         if kw in lower_text and status == "Safe":
             reasons.append({"type": "flagged", "message": f"Flagged keyword detected: {kw}"})
             status = "Flagged"
-            print(f"⚠️ Flagged keyword detected: {kw}")
 
-    # PII detection
     try:
-        results = analyzer.analyze(text=prompt, language="en")
+        results = analyzer.analyze(text=prompt, language="en") if analyzer else []
         if results:
             pii_entities = sorted(list(set([res.entity_type for res in results])))
             if pii_entities:
                 reasons.append({"type": "pii", "message": f"Contains PII: {', '.join(pii_entities)}."})
-                print(f"🛡️ PII detected: {pii_entities}")
                 for res in reversed(results):
                     redacted_prompt = redacted_prompt[:res.start] + f"[{res.entity_type}]" + redacted_prompt[res.end:]
                 if any(ent in pii_entities for ent in ["PHONE_NUMBER", "CREDIT_CARD", "ATM_PIN"]):
                     status = "Blocked"
     except Exception as e:
         reasons.append({"type": "error", "message": "PII analysis failed."})
-        print(f"❌ PII analysis failed: {e}")
+        logger.warning("PII analysis failed: %s", e)
 
-    # Toxicity detection
     if detoxify_model:
         try:
             tox_results = detoxify_model.predict(prompt)
@@ -237,30 +305,17 @@ def analyze_prompt(prompt: str) -> Dict[str, Any]:
                     threshold = TOXICITY_THRESHOLDS[label]
                     if score > threshold:
                         reasons.append({"type": "toxic", "message": f"Detected '{label}' with score {score:.2f}."})
-                        print(f"☣️ Toxicity detected: {label} score={score:.2f}")
                         if label in ["severe_toxicity", "threat"]:
                             status = "Blocked"
                         elif status == "Safe":
                             status = "Flagged"
         except Exception as e:
             reasons.append({"type": "error", "message": "Toxicity analysis failed."})
-            print(f"❌ Toxicity analysis failed: {e}")
+            logger.warning("Toxicity analysis failed: %s", e)
 
-    # Audio alerts
-    if status == "Blocked":
-        if any(r["type"] == "pii" for r in reasons):
-            play_alert(ALERT_PII_PATH)
-        else:
-            play_alert(ALERT_POLICY_PATH)
-    elif status == "Flagged":
-        play_alert(ALERT_POLICY_PATH)
-
-    # Gemini response if safe
     if status == "Safe" and prompt.strip():
-        print(f"💡 Prompt is safe, sending to Gemini for response...")
         gemini_response = get_gemini_response(prompt)
 
-    print(f"✅ Analysis complete. Status: {status}")
     return {
         "status": status,
         "reasons": reasons,
@@ -272,41 +327,31 @@ def analyze_prompt(prompt: str) -> Dict[str, Any]:
 def log_result(prompt: str, status: str, reasons: List[Dict[str, str]], redacted_prompt: Optional[str], gemini_response: Optional[str]):
     try:
         timestamp = datetime.now().isoformat()
-        cursor.execute(
-            "INSERT INTO logs (prompt, status, reasons, timestamp, redacted_prompt, gemini_response) VALUES (?, ?, ?, ?, ?, ?)",
-            (prompt, status, json.dumps(reasons), timestamp, redacted_prompt, gemini_response)
-        )
-        conn.commit()
-        logs.append({
-            "prompt": prompt,
-            "status": status,
-            "reasons": reasons,
-            "redacted_prompt": redacted_prompt,
-            "gemini_response": gemini_response,
-            "timestamp": timestamp
-        })
-        print(f"📝 Logged prompt to DB. Status: {status}")
+        with db_lock:
+            cursor.execute(
+                "INSERT INTO logs (prompt, status, reasons, timestamp, redacted_prompt, gemini_response) VALUES (?, ?, ?, ?, ?, ?)",
+                (prompt, status, json.dumps(reasons), timestamp, redacted_prompt, gemini_response),
+            )
+            conn.commit()
     except Exception as e:
-        print(f"❌ Failed to log to DB: {e}")
+        logger.warning("Failed to write log entry: %s", e)
 
 
-# --- API Endpoints ---
 @app.get("/", response_class=HTMLResponse)
 async def serve_frontend():
-    print("📄 Serving index.html")
-    with open("index.html", "r") as f:
+    with open(PROJECT_ROOT / "index.html", "r", encoding="utf-8") as f:
         return f.read()
 
 @app.post("/check_prompt")
 async def check_prompt_endpoint(prompt_data: Prompt, request: Request) -> AnalysisResult:
-    content_length = request.headers.get("Content-Length")
-    if content_length and int(content_length) > MAX_PAYLOAD_SIZE:
-        print(f"⚠️ Payload too large: {content_length} bytes")
+    enforce_rate_limit(request)
+    content_length_raw = request.headers.get("Content-Length")
+    if content_length_raw and content_length_raw.isdigit() and int(content_length_raw) > MAX_PAYLOAD_SIZE:
         raise HTTPException(status_code=413, detail="Request payload size exceeds limit.")
-    
+
     result = analyze_prompt(prompt_data.text)
     log_result(prompt_data.text, result["status"], result["reasons"], result.get("redacted_prompt"), result.get("gemini_response"))
-    
+
     return AnalysisResult(
         prompt=prompt_data.text,
         status=result["status"],
@@ -316,50 +361,85 @@ async def check_prompt_endpoint(prompt_data: Prompt, request: Request) -> Analys
     )
 
 @app.get("/get_logs")
-async def get_logs_endpoint():
-    print("📊 Fetching logs from DB")
+async def get_logs_endpoint(
+    request: Request,
+    limit: int = Query(default=200, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+    status: Optional[Literal["Safe", "Flagged", "Blocked"]] = None,
+):
+    require_admin_key(request)
     try:
-        cursor.execute("SELECT id, prompt, status, reasons, timestamp, redacted_prompt, gemini_response FROM logs ORDER BY id DESC")
+        with db_lock:
+            if status:
+                cursor.execute("SELECT COUNT(1) FROM logs WHERE status = ?", (status,))
+                total_count = cursor.fetchone()[0]
+                cursor.execute(
+                    "SELECT id, prompt, status, reasons, timestamp, redacted_prompt, gemini_response "
+                    "FROM logs WHERE status = ? ORDER BY id DESC LIMIT ? OFFSET ?",
+                    (status, limit, offset),
+                )
+            else:
+                cursor.execute("SELECT COUNT(1) FROM logs")
+                total_count = cursor.fetchone()[0]
+                cursor.execute(
+                    "SELECT id, prompt, status, reasons, timestamp, redacted_prompt, gemini_response "
+                    "FROM logs ORDER BY id DESC LIMIT ? OFFSET ?",
+                    (limit, offset),
+                )
+            rows = cursor.fetchall()
         logs_list = [
             {
-                "id": e[0], 
-                "prompt": e[1], 
-                "status": e[2], 
-                "reasons": json.loads(e[3]),
-                "timestamp": e[4], 
-                "redacted_prompt": e[5],
-                "gemini_response": e[6]
-            } for e in cursor.fetchall()
+                "id": entry[0],
+                "prompt": entry[1],
+                "status": entry[2],
+                "reasons": json.loads(entry[3]) if entry[3] else [],
+                "timestamp": entry[4],
+                "redacted_prompt": entry[5],
+                "gemini_response": entry[6],
+            }
+            for entry in rows
         ]
-        print(f"✅ {len(logs_list)} logs fetched")
-        return {"logs": logs_list}
+        return {
+            "logs": logs_list,
+            "total": total_count,
+            "limit": limit,
+            "offset": offset,
+        }
     except Exception as e:
-        print(f"❌ Failed to fetch logs: {e}")
+        logger.warning("Failed to fetch logs: %s", e)
         return {"logs": []}
 
 @app.post("/clear_logs")
-async def clear_logs():
-    global logs
-    logs = []
+async def clear_logs(request: Request):
+    require_admin_key(request)
     try:
-        cursor.execute("DELETE FROM logs")
-        conn.commit()
-        print("🧹 All logs cleared")
+        with db_lock:
+            cursor.execute("DELETE FROM logs")
+            conn.commit()
     except Exception as e:
-        print(f"❌ Failed to clear DB logs: {e}")
+        logger.warning("Failed to clear logs: %s", e)
         raise HTTPException(status_code=500, detail="Failed to clear DB logs")
     return {"detail": "All logs cleared"}
 
 @app.post("/update_mode")
-async def update_mode(mode_data: ModeUpdate):
-    print(f"⚙️ Compliance mode updated to: {mode_data.mode}")
+async def update_mode(mode_data: ModeUpdate, request: Request):
+    require_admin_key(request)
+    logger.info("Compliance mode updated to: %s", mode_data.mode)
     return {"message": f"Mode successfully updated to {mode_data.mode}"}
 
 @app.get("/get_settings")
-async def get_settings_endpoint():
-    print("⚙️ Returning current settings")
+async def get_settings_endpoint(request: Request):
+    require_admin_key(request)
     return settings
+
+@app.get("/health")
+async def healthcheck():
+    return {
+        "status": "ok",
+        "nlp_models_loaded": nlp_engine_loaded,
+        "gemini_enabled": bool(GEMINI_API_KEY),
+    }
 
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
-    return ""
+    return Response(status_code=204)

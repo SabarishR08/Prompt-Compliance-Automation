@@ -3,20 +3,30 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Prompt Compliance Prototype</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <title>Prompt Compliance Console</title>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #f1f5f9;
+        :root {
+            --ink: #102a43;
+            --bg-soft: #f4f7fb;
+            --bg-card: rgba(255, 255, 255, 0.9);
+            --accent: #0f766e;
+            --accent-strong: #115e59;
         }
-        .container { max-width: 800px; }
+        body {
+            font-family: 'IBM Plex Sans', sans-serif;
+            background: radial-gradient(circle at top left, #dbeafe 0%, var(--bg-soft) 45%, #e2e8f0 100%);
+            color: var(--ink);
+        }
+        .container { max-width: 980px; }
         .card {
-            background-color: #ffffff;
+            background-color: var(--bg-card);
             border-radius: 1rem;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.08);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            box-shadow: 0 14px 30px rgba(15, 23, 42, 0.08);
+            backdrop-filter: blur(6px);
         }
         .status-safe { background-color: #a7f3d0; color: #047857; }
         .status-flagged { background-color: #fde68a; color: #a16207; }
@@ -62,7 +72,7 @@
             transform: translateY(20px);
         }
         .toast.show { opacity: 1; transform: translateY(0); display: block; }
-        .toast-success { background-color: #0d9488; }
+        .toast-success { background-color: var(--accent); }
         .toast-error { background-color: #e11d48; }
         .blocked-row {
             border-left-width: 8px;
@@ -94,75 +104,19 @@
             font-size: 1.5rem; font-weight: bold; color: #9ca3af;
             cursor: pointer;
         }
-        .audio-controls {
-            position: fixed;
-            bottom: 1rem;
-            left: 1rem;
-            background: rgba(255, 255, 255, 0.9);
-            padding: 0.5rem;
-            border-radius: 0.5rem;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-            z-index: 40;
-        }
-        .audio-toggle {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            font-size: 0.875rem;
-            color: #4b5563;
-        }
-        .toggle-switch {
-            position: relative;
-            display: inline-block;
-            width: 40px;
-            height: 20px;
-        }
-        .toggle-switch input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-        }
-        .slider {
-            position: absolute;
-            cursor: pointer;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-color: #ccc;
-            transition: .4s;
-            border-radius: 20px;
-        }
-        .slider:before {
-            position: absolute;
-            content: "";
-            height: 16px;
-            width: 16px;
-            left: 2px;
-            bottom: 2px;
-            background-color: white;
-            transition: .4s;
-            border-radius: 50%;
-        }
-        input:checked + .slider {
-            background-color: #0d9488;
-        }
-        input:checked + .slider:before {
-            transform: translateX(20px);
-        }
         .gemini-response {
             background-color: #f0f9ff;
             border-left: 4px solid #0ea5e9;
         }
     </style>
 </head>
-<body class="bg-slate-100 flex items-center justify-center min-h-screen p-4">
+<body class="flex items-center justify-center min-h-screen p-4">
 
     <div class="container w-full p-6 card">
         <header class="flex justify-between items-center mb-6">
-            <h1 class="text-2xl font-bold text-gray-800">Prompt Compliance Prototype</h1>
+            <h1 class="text-2xl font-bold text-slate-900">Prompt Compliance Console</h1>
             <div class="flex space-x-2">
-                <button id="showCheckerBtn" class="px-4 py-2 text-sm font-semibold rounded-lg bg-teal-600 text-white hover:bg-teal-700 focus:outline-none transition">Checker</button>
+                <button id="showCheckerBtn" class="px-4 py-2 text-sm font-semibold rounded-lg bg-teal-600 text-white hover:bg-teal-700 focus:outline-none transition">Analyze</button>
                 <button id="showLogsBtn" class="px-4 py-2 text-sm font-semibold rounded-lg bg-gray-200 text-gray-700 hover:bg-gray-300 focus:outline-none transition">Logs</button>
             </div>
         </header>
@@ -185,10 +139,10 @@
             </div>
 
             <div class="mb-4">
-                <label for="promptInput" class="block text-gray-700 font-medium mb-2">Enter a prompt to check:</label>
-                <textarea id="promptInput" rows="6" class="w-full p-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-teal-400 transition" placeholder="e.g., 'What is the secret recipe for this dish?' or 'My phone number is 555-1234.'"></textarea>
+                <label for="promptInput" class="block text-gray-700 font-medium mb-2">Enter prompt text for compliance analysis:</label>
+                <textarea id="promptInput" rows="6" class="w-full p-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-teal-400 transition" placeholder="Example: summarize this internal memo without exposing personal data."></textarea>
             </div>
-            <button id="submitBtn" class="w-full bg-teal-600 text-white font-semibold py-3 rounded-lg hover:bg-teal-700 transition">Check Prompt</button>
+            <button id="submitBtn" class="w-full bg-teal-600 text-white font-semibold py-3 rounded-lg hover:bg-teal-700 transition">Run Compliance Check</button>
 
             <div id="loading" class="hidden flex justify-center items-center mt-6">
                 <div class="loading-spinner"></div>
@@ -222,8 +176,13 @@
                     <button id="refreshLogsBtn" class="px-4 py-2 text-sm font-semibold rounded-lg bg-gray-200 text-gray-700 hover:bg-gray-300 focus:outline-none transition">
                         <span id="refreshLogsText">Refresh</span>
                     </button>
+                    <button id="clearLogsBtn" class="px-4 py-2 text-sm font-semibold rounded-lg bg-rose-100 text-rose-700 hover:bg-rose-200 focus:outline-none transition">Clear</button>
                     <button id="downloadLogsBtn" class="px-4 py-2 text-sm font-semibold rounded-lg bg-green-500 text-white hover:bg-green-600 focus:outline-none transition">Download</button>
                 </div>
+            </div>
+            <div class="mb-4 flex flex-col md:flex-row md:items-center md:justify-end gap-2">
+                <label for="adminKeyInput" class="text-sm font-medium text-gray-600">Admin key</label>
+                <input type="password" id="adminKeyInput" class="w-full md:w-80 p-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-teal-400 transition" placeholder="Optional: required for protected routes">
             </div>
 
             <div id="logSummaryDashboard" class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -299,39 +258,20 @@
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-rose-500 mx-auto mb-4 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
-                <h2 class="text-3xl font-bold text-rose-600">Prompt Blocked!</h2>
-                <p class="text-gray-500 mt-2">This prompt was automatically blocked by the compliance system.</p>
+                <h2 class="text-3xl font-bold text-rose-600">Prompt Rejected</h2>
+                <p class="text-gray-500 mt-2">This request was blocked by policy controls.</p>
             </div>
             <div id="modalPromptText" class="bg-gray-100 p-4 rounded-lg text-sm text-gray-700 font-mono mb-4"></div>
             <div class="mb-6">
                 <h3 class="font-semibold text-gray-700">Reasons for blocking:</h3>
                 <ul id="modalReasonsList" class="mt-2 text-sm text-gray-600 space-y-2"></ul>
             </div>
-            <button id="modalOkBtn" class="w-full bg-rose-500 text-white font-semibold py-3 rounded-lg hover:bg-rose-600 transition">OK, I understand</button>
-        </div>
-    </div>
-
-    <!-- Audio Elements -->
-    <audio id="piiAudio" preload="auto">
-        <source src="https://assets.mixkit.co/sfx/preview/mixkit-alarm-digital-clock-beep-989.mp3" type="audio/mpeg">
-    </audio>
-    <audio id="policyAudio" preload="auto">
-        <source src="https://assets.mixkit.co/sfx/preview/mixkit-warning-alarm-buzzer-991.mp3" type="audio/mpeg">
-    </audio>
-    
-    <!-- Audio Controls -->
-    <div class="audio-controls">
-        <div class="audio-toggle">
-            <span>Audio Alerts:</span>
-            <label class="toggle-switch">
-                <input type="checkbox" id="audioToggle" checked>
-                <span class="slider"></span>
-            </label>
+            <button id="modalOkBtn" class="w-full bg-rose-500 text-white font-semibold py-3 rounded-lg hover:bg-rose-600 transition">Acknowledge</button>
         </div>
     </div>
 
     <script>
-        const API_BASE_URL = 'http://127.0.0.1:8000';
+        const API_BASE_URL = window.location.origin;
 
         // DOM Elements
         const checkerSection = document.getElementById('checkerSection');
@@ -350,7 +290,9 @@
         const logsTableBody = document.getElementById('logsTableBody');
         const noLogsMsg = document.getElementById('noLogsMsg');
         const refreshLogsBtn = document.getElementById('refreshLogsBtn');
+        const clearLogsBtn = document.getElementById('clearLogsBtn');
         const downloadLogsBtn = document.getElementById('downloadLogsBtn');
+        const adminKeyInput = document.getElementById('adminKeyInput');
         const logSearchInput = document.getElementById('logSearch');
         const clearSearchBtn = document.getElementById('clearSearchBtn');
         const refreshLogsText = document.getElementById('refreshLogsText');
@@ -373,13 +315,11 @@
         const updateModeBtn = document.getElementById('updateModeBtn');
         const modeSelect = document.getElementById('modeSelect');
         const currentModeText = document.getElementById('currentModeText');
-        const piiAudio = document.getElementById('piiAudio');
-        const policyAudio = document.getElementById('policyAudio');
-        const audioToggle = document.getElementById('audioToggle');
 
         let allLogs = [];
         let statusChartInstance = null;
-        let audioEnabled = true;
+        const storedAdminKey = localStorage.getItem('promptComplianceAdminKey') || '';
+        adminKeyInput.value = storedAdminKey;
         
         const icons = {
             pii: `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 8a6 6 0 11-12 0 6 6 0 0112 0zM7 8a3 3 0 116 0 3 3 0 01-6 0z" clip-rule="evenodd" /></svg>`,
@@ -390,6 +330,29 @@
         function getIcon(type) {
             const baseType = type.split('_')[0];
             return icons[baseType] || icons['keyword'];
+        }
+
+        function parseReasons(rawReasons) {
+            if (Array.isArray(rawReasons)) return rawReasons;
+            if (typeof rawReasons === 'string') {
+                try {
+                    const parsed = JSON.parse(rawReasons);
+                    return Array.isArray(parsed) ? parsed : [];
+                } catch {
+                    return [];
+                }
+            }
+            return [];
+        }
+
+        function createReasonBadge(reason) {
+            const span = document.createElement('span');
+            span.className = `reason-badge reason-${reason.type}`;
+            const iconWrap = document.createElement('span');
+            iconWrap.innerHTML = getIcon(reason.type);
+            span.appendChild(iconWrap);
+            span.appendChild(document.createTextNode(` ${reason.message}`));
+            return span;
         }
 
         function showSection(sectionId) {
@@ -419,23 +382,13 @@
             }, 3000);
         }
 
-        // Audio alert function
-        function playAudioAlert(data) {
-            if (!audioEnabled) return;
-            
-            // Reset audio elements
-            piiAudio.pause();
-            piiAudio.currentTime = 0;
-            policyAudio.pause();
-            policyAudio.currentTime = 0;
-            
-            // Play appropriate audio based on status and reasons
-            if (data.status === "Flagged") {
-                policyAudio.play().catch(e => console.log("Audio play failed:", e));
-            } else if (data.reasons && data.reasons.some(r => r.type === "pii" || r.type === "toxic")) {
-                piiAudio.play().catch(e => console.log("Audio play failed:", e));
+        function getProtectedHeaders(extraHeaders = {}) {
+            const headers = { ...extraHeaders };
+            const adminKey = adminKeyInput.value.trim();
+            if (adminKey) {
+                headers['X-Admin-Key'] = adminKey;
             }
-            // Safe prompts don't play any audio
+            return headers;
         }
 
         submitBtn.addEventListener('click', async () => {
@@ -454,7 +407,7 @@
             try {
                 const response = await fetch(`${API_BASE_URL}/check_prompt`, {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
+                    headers: getProtectedHeaders({ "Content-Type": "application/json" }),
                     body: JSON.stringify({ text: prompt })
                 });
 
@@ -470,7 +423,6 @@
                 }
 
                 displayResult(responseData);
-                playAudioAlert(responseData); // Play audio alert
                 
                 if (!logsSection.classList.contains('hidden')) {
                     fetchLogs();
@@ -491,7 +443,7 @@
             try {
                 const response = await fetch(`${API_BASE_URL}/update_mode`, {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
+                    headers: getProtectedHeaders({ "Content-Type": "application/json" }),
                     body: JSON.stringify({ mode: selectedMode })
                 });
                 
@@ -536,10 +488,7 @@
             
             if (data.reasons && data.reasons.length > 0) {
                 data.reasons.forEach(reason => {
-                    const span = document.createElement('span');
-                    span.className = `reason-badge reason-${reason.type}`;
-                    span.innerHTML = `${getIcon(reason.type)} ${reason.message}`;
-                    reasonsList.appendChild(span);
+                    reasonsList.appendChild(createReasonBadge(reason));
                 });
             } else {
                 reasonsList.textContent = "No compliance issues detected.";
@@ -568,7 +517,7 @@
             if (data.reasons && data.reasons.length > 0) {
                 data.reasons.forEach(reason => {
                     const li = document.createElement('li');
-                    li.innerHTML = `• ${reason.message}`;
+                    li.textContent = `• ${reason.message}`;
                     modalReasonsList.appendChild(li);
                 });
             }
@@ -585,7 +534,9 @@
         async function fetchLogs() {
             refreshLogsText.textContent = "Refreshing...";
             try {
-                const response = await fetch(`${API_BASE_URL}/get_logs`);
+                const response = await fetch(`${API_BASE_URL}/get_logs?limit=500`, {
+                    headers: getProtectedHeaders()
+                });
                 if (!response.ok) throw new Error("Server failed to return logs.");
                 
                 let data;
@@ -642,7 +593,7 @@
                 else if (log.status === "Flagged") flagged++;
                 else if (log.status === "Blocked") blocked++;
                 
-                const reasons = typeof log.reasons === 'string' ? JSON.parse(log.reasons) : log.reasons;
+                const reasons = parseReasons(log.reasons);
                 if (reasons && Array.isArray(reasons)) {
                     reasons.forEach(reason => {
                         const key = reason.type;
@@ -698,11 +649,22 @@
 
                     const reasonsCell = document.createElement('td');
                     reasonsCell.className = 'px-6 py-4 whitespace-nowrap text-sm text-gray-500';
-                    const reasons = typeof log.reasons === 'string' ? JSON.parse(log.reasons) : log.reasons;
+                    const reasons = parseReasons(log.reasons);
                     if (reasons && reasons.length > 0) {
                         const reasonTexts = reasons.map(r => r.message).join(', ');
-                        reasonsCell.innerHTML = `<span class="reason-badge reason-${reasons[0].type}" title="${reasonTexts}">${getIcon(reasons[0].type)} ${reasons[0].type.replace("_", " ")}</span>` +
-                                                (reasons.length > 1 ? ` <span class="text-xs font-bold" title="${reasonTexts}">+${reasons.length - 1}</span>` : '');
+                        const summaryBadge = createReasonBadge({
+                            type: reasons[0].type,
+                            message: reasons[0].type.replaceAll('_', ' ')
+                        });
+                        summaryBadge.title = reasonTexts;
+                        reasonsCell.appendChild(summaryBadge);
+                        if (reasons.length > 1) {
+                            const extra = document.createElement('span');
+                            extra.className = 'text-xs font-bold ml-1';
+                            extra.title = reasonTexts;
+                            extra.textContent = `+${reasons.length - 1}`;
+                            reasonsCell.appendChild(extra);
+                        }
                     } else {
                         reasonsCell.textContent = 'None';
                     }
@@ -741,12 +703,31 @@
             fetchLogs();
         });
 
+        clearLogsBtn.addEventListener('click', async () => {
+            if (!confirm('Clear all compliance logs? This action cannot be undone.')) return;
+            try {
+                const response = await fetch(`${API_BASE_URL}/clear_logs`, {
+                    method: 'POST',
+                    headers: getProtectedHeaders({ "Content-Type": "application/json" })
+                });
+                
+                if (!response.ok) throw new Error('Failed to clear logs.');
+                allLogs = [];
+                displayLogs(allLogs);
+                updateLogSummary(allLogs);
+                showToast('Logs cleared successfully.', 'success');
+            } catch (error) {
+                console.error('Error clearing logs:', error);
+                showToast(error.message || 'Failed to clear logs.', 'error');
+            }
+        });
+
         downloadLogsBtn.addEventListener('click', () => {
             const header = ["id", "prompt", "status", "reasons", "timestamp", "redacted_prompt", "gemini_response"];
             const csv = [
                 header.join(","),
                 ...allLogs.map(log => {
-                    const reasons = typeof log.reasons === 'string' ? JSON.parse(log.reasons) : log.reasons;
+                    const reasons = parseReasons(log.reasons);
                     return [
                         log.id || '',
                         `"${(log.prompt || '').replace(/"/g, '""')}"`,
@@ -769,14 +750,18 @@
             document.body.removeChild(link);
         });
 
-        // Audio toggle functionality
-        audioToggle.addEventListener('change', function() {
-            audioEnabled = this.checked;
-            showToast(`Audio alerts ${audioEnabled ? 'enabled' : 'disabled'}`, 'success');
+        adminKeyInput.addEventListener('change', () => {
+            localStorage.setItem('promptComplianceAdminKey', adminKeyInput.value.trim());
         });
 
         showCheckerBtn.addEventListener('click', () => showSection('checker'));
         showLogsBtn.addEventListener('click', () => showSection('logs'));
+
+        promptInput.addEventListener('keydown', (event) => {
+            if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+                submitBtn.click();
+            }
+        });
 
         document.addEventListener('DOMContentLoaded', () => {
             showSection('checker');

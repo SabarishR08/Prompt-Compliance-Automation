@@ -1,47 +1,38 @@
-# **Contributing to Prompt Compliance Automation**
+# Contributing
 
-Thank you for your interest in contributing\! Your help in improving this project is greatly appreciated. Please follow these guidelines.
+Thank you for contributing to Prompt Compliance Automation.
 
-## **How to Contribute**
+## Development Workflow
 
-1. **Fork the repository** to your GitHub account.  
-2. **Clone your fork** locally:  
-   git clone \[https://github.com/your-username/Prompt-Compliance-Automation.git\](https://github.com/your-username/Prompt-Compliance-Automation.git)  
-   cd Prompt-Compliance-Automation
+1. Fork the repository and clone your fork.
+2. Create a focused branch: feature/<name> or bugfix/<name>.
+3. Make changes with clear commit messages.
+4. Run local validation before opening a pull request.
+5. Open a PR with summary, rationale, and test notes.
 
-3. Create a new branch for your feature or bug fix:  
-   git checkout \-b feature/my-new-feature
+## Coding Standards
 
-4. Make your changes, following coding and documentation guidelines.  
-5. Commit your changes with a descriptive message:  
-   git add .  
-   git commit \-m "feat: Add feature X to improve Y"
+- Follow PEP 8 for Python code.
+- Keep functions small and focused.
+- Add comments only where logic is non-obvious.
+- Update README or settings docs when behavior changes.
 
-6. Push your branch to your fork:  
-   git push origin feature/my-new-feature
+## Pull Request Checklist
 
-7. Open a **Pull Request (PR)** on the main repository describing your changes.
+- Code builds and runs locally
+- No secrets or credentials committed
+- Documentation updated where needed
+- Scope is limited to a single concern
 
-## **Coding Guidelines**
+## Reporting Issues
 
-* Follow Python **PEP8 standards**.  
-* Use clear and meaningful names for variables and functions.  
-* Add comments for complex logic.  
-* Update documentation (including the README.md) if necessary.  
-* Keep commits **atomic**: one feature/fix per commit.
+When reporting a bug, include:
 
-## **Reporting Issues**
+- Reproduction steps
+- Expected behavior
+- Actual behavior
+- Relevant logs or screenshots
 
-* Use the **Issues tab** to report bugs or request features.  
-* Provide clear **steps to reproduce** and include screenshots if possible.  
-* Include expected vs. actual behavior for clarity.
+## License
 
-## **Branch Naming Convention**
-
-* **Features:** feature/\<feature-name\>  
-* **Bug fixes:** bugfix/\<bug-description\>  
-* **Hotfixes / urgent fixes:** hotfix/\<short-description\>
-
-## **License**
-
-By contributing, you agree that your contributions will be licensed under the **MIT License**.
+By contributing, you agree that your contributions are licensed under MIT.
