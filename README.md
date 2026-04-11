@@ -1,218 +1,88 @@
-# **🤖 Prompt Compliance Automation**
+# Prompt Compliance Automation
 
-Prompt Compliance Automation is a **middleware solution** designed to help organizations securely leverage Large Language Models (LLMs) while rigorously protecting sensitive and confidential data.
+Prompt Compliance Automation is a FastAPI-based middleware service that screens LLM prompts for policy violations before they reach a model endpoint. It detects sensitive keywords, PII, and toxic content, then classifies each prompt as Safe, Flagged, or Blocked.
 
-It automatically analyzes and moderates prompts to detect **toxic content**, **sensitive keywords**, and **Personally Identifiable Information (PII)**, ensuring that unsafe content is either redacted or blocked. This allows users to safely continue using AI tools without risking **data leakage** or **regulatory non-compliance**.
+## Core Capabilities
 
+- Real-time prompt analysis and classification
+- Keyword policy checks (flagged and blocked terms)
+- PII detection and redaction via Presidio
+- Toxicity scoring via Detoxify thresholds
+- Configurable policy settings in settings.json
+- Audit logging in SQLite
+- Web dashboard for analysis and log review
+- Security headers, trusted-host checks, and response compression
 
-## **📌 Problem Statement**
+## Architecture
 
-Organizations increasingly rely on LLMs for tasks such as debugging, documentation, and brainstorming. Employees may unknowingly share sensitive data (PII, API keys, source code, internal assets) with external AI tools, creating risks such as:
+1. User submits prompt to FastAPI endpoint
+2. Service runs keyword, PII, and toxicity checks
+3. Prompt is classified and optionally redacted
+4. Result is logged to SQLite for auditability
+5. Safe prompts can be forwarded to Gemini for response generation
 
-1. **Data Leakage** and **Asset Loss**.  
-2. **Regulatory Non-compliance** (e.g., GDPR, ISO).
+## Project Layout
 
-**Prompt Compliance Automation** solves this by acting as a secure gateway, ensuring all prompts are safe, compliant, and redacted before reaching the LLM.
+- app.py: FastAPI service and moderation pipeline
+- index.html: Web dashboard
+- clear_db.py: Utility to clear SQLite logs
+- settings.json: Policy and threshold configuration
+- requirements.txt: Pinned project dependencies
+- .env.example: Environment variable template
+- images/: Screenshots and assets
 
-## **🎯 Goals**
+## Setup
 
-| Goal | Description |
-| :---- | :---- |
-| **Real-time Detection** | Detect blocked/flagged keywords and entities in real time. |
-| **PII Management** | Identify and redact PII while preserving the surrounding context. |
-| **Toxicity Analysis** | Detect toxic or unsafe content using pre-trained ML models. |
-| **Configurability** | Provide configurable compliance rules and moderation modes. |
-| **Audit Trails** | Maintain structured logs of all actions for audit and monitoring purposes. |
+### 1) Create and activate a virtual environment
 
-## **🛠️ Solution Overview**
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+```
 
-Prompt Compliance Automation sits between the user and the external LLM, processing and moderating the input based on defined compliance rules.
+### 2) Install dependencies
 
-### **Workflow**
+```bash
+pip install -r requirements.txt
+python -m spacy download en_core_web_sm
+```
 
-1. **Prompt** → **API (FastAPI)**  
-2. **API** → **Analyzer**  
-3. **Analyzer** performs checks (Keyword, PII, Toxicity).  
-4. Prompt is **Redacted & Classified** (Safe, Flagged, or Blocked).  
-5. Action is **Logged (SQLite)**.  
-6. If **Safe**, the prompt is forwarded to **Gemini/Local LLM** for a response.  
-7. If **Flagged/Blocked**, the user receives an alert/rejection.  
-8. All activity is visible on the **Dashboard (HTML/JS)**.
+### 3) Configure environment variables
 
-### **✅ Key Features**
+Create a .env file in the project root:
 
-* Real-time prompt analysis.  
-* Keyword filtering (flagged & blocked terms).  
-* PII detection & redaction (phone numbers, ATM PINs, credit cards, etc.).  
-* Toxicity analysis using ML thresholds via Detoxify.  
-* Audio alerts for flagged/blocked prompts.  
-* SQLite database for audit logs.  
-* Supports multiple moderation modes: **Default / Custom / Hybrid**.  
-* Supports optional **local LLMs** to generate responses for safe prompts without sending confidential data to external APIs.
+```env
+GEMINI_API_KEY=your_google_api_key
+ALLOWED_ORIGINS=http://127.0.0.1:8000,http://localhost:8000
+TRUSTED_HOSTS=127.0.0.1,localhost
+```
 
-### **📊 Metrics Impact**
+## Run
 
-* Boosts toxic/sensitive content detection rates.  
-* Reduces the need for manual prompt moderation efforts.  
-* Ensures PII redaction with traceable, time-stamped logs.  
-* Provides configurable, centralized compliance rules across the organization.
+```bash
+uvicorn app:app --reload --port 8000
+```
 
-## **🖥️ Architecture & Tech Stack**
+Open http://127.0.0.1:8000 in a browser.
 
-The solution is built as a lightweight, scalable microservice ready for deployment.
+## API Endpoints
 
-### **⚙️ Tech Stack**
+- POST /check_prompt: Analyze a prompt and return classification details
+- GET /get_logs: Retrieve log history
+- GET /get_logs?limit=200&offset=0&status=Blocked: Paginated and filterable logs
+	Response includes logs, total, limit, and offset.
+- POST /clear_logs: Delete all audit logs
+- POST /update_mode: Update moderation mode label
+- GET /get_settings: Return active policy configuration
+- GET /health: Service health and model availability
 
-| Component | Technology | Role |
-| :---- | :---- | :---- |
-| **Backend API** | Python, FastAPI | High-performance API serving the middleware logic. |
-| **Frontend** | HTML, CSS, JavaScript | Simple dashboard for prompt testing and log visualization. |
-| **NLP/ML** | spaCy, Presidio, Detoxify | Core analysis, PII detection, and content moderation. |
-| **Database** | SQLite | Local, reliable storage for compliance and audit logs. |
+## Security Notes
 
-## **⚙️ Installation & Setup**
+- Do not commit API keys or tokens to repository files
+- Keep .env local and excluded from source control
+- Restrict CORS origins in ALLOWED_ORIGINS for production
+- Rotate any key that has ever been committed
 
-Follow these steps to get the Prompt Compliance Automation service running locally.
+## License
 
-### **1️⃣ Clone the repository**
-
-git clone https://github.com/SabarishR08/Prompt-Compliance-Automation.git
-
-cd Prompt-Compliance-Automation
-
-### **2️⃣ Create virtual environment & install dependencies**
-
-\# Create and activate environment  
-python \-m venv venv  
-source venv/bin/activate   \# On Linux/Mac  
-venv\\Scripts\\activate      \# On Windows
-
-\# Install required packages  
-pip install \-r requirements.txt
-
-### **3️⃣ Setup environment variables (.env)**
-
-Create a file named .env in the project root to configure the Gemini API key and paths for the audio alerts:
-
-GEMINI\_API\_KEY=your\_google\_api\_key  
-ALERT\_PII\_PATH=./sound\_alerts/PII\_Alert.mp3  
-ALERT\_POLICY\_PATH=./sound\_alerts/Policy-Violation\_Alert.mp3
-
-### **4️⃣ Run the application**
-
-uvicorn app:app \--reload \--port 8000
-
-Visit: http://127.0.0.1:8000 to access the frontend dashboard.
-
-## **📂 Project Structure**
-
-Prompt-Compliance-Automation/  
-│   .env  
-│   .gitignore  
-│   app.py                  \# Main FastAPI logic  
-│   clear\_db.py             \# Script to clear the SQLite DB  
-│   index.html              \# Frontend dashboard  
-│   logs.db                 \# SQLite database  
-│   README.md  
-│   requirements.txt  
-│   settings.json           \# Configurable policy rules  
-├───sound\_alerts/  
-│       PII\_Alert.mp3  
-│       Policy-Violation\_Alert.mp3  
-└───\_\_pycache\_\_/
-
-## **🔑 API Endpoints**
-
-| Method | Endpoint | Description |
-| :---- | :---- | :---- |
-| POST | /check\_prompt | Analyzes prompt, returns compliance status, and Gemini/local LLM response if safe. |
-| GET | /get\_logs | Fetch all stored logs. |
-| POST | /clear\_logs | Clear logs from DB. |
-| POST | /update\_mode | Update compliance mode (default/custom/hybrid). |
-| GET | /get\_settings | Fetch current policy settings. |
-
-## **📊 Sample Workflow**
-
-1. **User submits a prompt.**
-   <p></p>
-   <img src="images/UI.jpeg" alt="UI" width="600">
-   <p></p>
-
-2. API checks: Blocked keywords, PII entities (via **Presidio**), and Toxicity scores (via **Detoxify**).  
-3. Prompt is classified as:  
-   * ✅ **Safe** → Forward to Gemini or local LLM, log response.
-     <p></p>
-     <img src="images/test_safe_response-received.jpeg.jpeg" alt="test_safe_response-received" width="600">
-     <p></p>
-   * ⚠️ **Flagged** → Redacted / Warning raised.  
-   * ⛔ **Blocked** → Rejected with alert sound.
-     <p>PII detected -> Prompt blocked</p>
-     <img src="images/test_pii_blocked.jpeg" alt="PII Blocked" width="600">
-     <p></p>
-  
-
-   
-     <p>Backend Process</p>
-     <img src="images/Backend_process_1.jpeg" alt="Backend Process" width="600">
-     <p></p>
-
-
- 
-     <p>Toxicity detected -> Prompt blocked</p>
-     <img src="images/test_toxicity_blocked.jpeg" alt="Toxic Prompt" width="600">
-     <p></p>
-  
-
-   
-     <p>Backend Process</p>
-     <img src="images/Backend_process_2.jpeg" alt="Backend Process" width="600">
-     <p></p>
-4. Logs stored in **SQLite** for audits.
-   
-     <p>Backend Process</p>
-     <img src="images/Log_Dashboard.jpeg" alt="Log Dashboard" width="600">
-     <p></p>
-
-
-**Future Enhancement:** Blocked/unsafe prompts can be suggested a safe rephrased prompt using a trained local middleware LLM before sending to external LLM servers (e.g., OpenAI).
-
-## **📚 Real-World Relevance**
-
-### **Use Case Scenario**
-
-In organizations, employees often use AI tools/LLMs to debug errors or generate code. They may inadvertently paste entire source code, API keys, or internal data into the AI tool.
-
-* **Problem:** Data leakage, asset loss, regulatory violations.  
-* **Solution:** Our prototype acts as a middleware service. It analyzes prompts before forwarding them. Unsafe or confidential content is either blocked, redacted, or flagged. Employees can safely continue using LLMs without risking data breaches.
-
-### **Industry Impact**
-
-* **Samsung Data Leak (2023):** Engineers leaked source code into ChatGPT.  
-* **Apple & Amazon Restrictions:** Limited employee usage of generative AI tools.  
-* **Case Study:** A global IT company with 5,000+ developers found \~22% of employees pasted source code or API keys into external AI tools. Potential exposure of millions of lines of code could result in **$4.2M estimated losses**.
-
-Our system could prevent such risks with proactive compliance filtering.
-
-## **🔮 Future Scope**
-
-* Multi-language & enterprise compliance support.  
-* Dockerized microservice deployment.  
-* Role-Based Access Control (RBAC).  
-* MLOps monitoring dashboards.  
-* Cloud scaling with AWS / GCP.  
-* Middleware LLM for safe rephrasing: Suggest alternate safe prompts for blocked/unsafe inputs.  
-* Expand local LLM integration for response generation without exposing confidential data.
-
-## **🚀 Hackathon Project – PEC Techathon 3.0 powered by Cognizant**
-
-Team: Prompt Monks  
-Sabarish R (lead)
-
-## **👨‍💻 Contributors**
-
-* **Sabarish R (Lead):** Backend, ML Integration, DB, Documentation
-* **Team :** Frontend, Research
-
-## **📜 License**
-
-This project is licensed under the **MIT License**.
+MIT

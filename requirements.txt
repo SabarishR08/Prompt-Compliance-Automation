@@ -1,0 +1,9 @@
+fastapi==0.135.3
+starlette==0.49.1
+uvicorn==0.44.0
+pydantic==2.12.5
+python-dotenv==1.2.1
+google-generativeai==0.8.5
+spacy==3.8.11
+presidio-analyzer==2.2.360
+detoxify==0.5.2

@@ -1,6 +1,7 @@
 # Environment variables
 .env
 *.env
+api.txt
 
 # Python cache files
 __pycache__/
@@ -18,6 +19,10 @@ venv/
 
 # Logs
 *.log
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
 
 # OS-specific
 .DS_Store

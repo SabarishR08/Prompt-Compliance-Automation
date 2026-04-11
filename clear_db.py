@@ -1,14 +1,16 @@
 import sqlite3
+from pathlib import Path
 
-conn = sqlite3.connect("logs.db")
-cursor = conn.cursor()
 
-cursor.execute("DELETE FROM logs")
-conn.commit()
+def clear_logs(db_path: Path) -> None:
+	with sqlite3.connect(db_path) as conn:
+		cursor = conn.cursor()
+		cursor.execute("DELETE FROM logs")
+		cursor.execute("VACUUM")
+		conn.commit()
 
-# Optional: Compact the database
-cursor.execute("VACUUM")
-conn.commit()
 
-conn.close()
-print("Logs cleared successfully.")
+if __name__ == "__main__":
+	database_file = Path(__file__).resolve().parent / "logs.db"
+	clear_logs(database_file)
+	print("Logs cleared successfully.")
