@@ -3,15 +3,18 @@ import logging
 import os
 import sqlite3
 import threading
+import hashlib
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime
-from collections import defaultdict, deque
+from collections import defaultdict, deque, OrderedDict
 from datetime import timezone
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 import google.generativeai as genai
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -41,7 +44,14 @@ logger = logging.getLogger("prompt-compliance")
 PROJECT_ROOT = Path(__file__).resolve().parent
 RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60"))
 RATE_LIMIT_MAX_REQUESTS = int(os.getenv("RATE_LIMIT_MAX_REQUESTS", "20"))
+SAFE_PROMPT_CACHE_MAX_SIZE = int(os.getenv("SAFE_PROMPT_CACHE_MAX_SIZE", "128"))
+SAFE_PROMPT_CACHE_TTL_SECONDS = int(os.getenv("SAFE_PROMPT_CACHE_TTL_SECONDS", "900"))
+SKIP_HEAVY_SCANS_WHEN_BLOCKED = os.getenv("SKIP_HEAVY_SCANS_WHEN_BLOCKED", "true").lower() == "true"
 request_buckets: Dict[str, deque[datetime]] = defaultdict(deque)
+rate_limit_lock = threading.Lock()
+INDEX_HTML_CACHE: Optional[str] = None
+safe_prompt_cache: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+safe_prompt_cache_lock = threading.Lock()
 
 
 def get_client_identifier(request: Request) -> str:
@@ -57,15 +67,25 @@ def enforce_rate_limit(request: Request) -> None:
     client_id = get_client_identifier(request)
     now = datetime.now(timezone.utc)
     window_start = now.timestamp() - RATE_LIMIT_WINDOW_SECONDS
-    bucket = request_buckets[client_id]
+    with rate_limit_lock:
+        bucket = request_buckets[client_id]
 
-    while bucket and bucket[0].timestamp() < window_start:
-        bucket.popleft()
+        while bucket and bucket[0].timestamp() < window_start:
+            bucket.popleft()
 
-    if len(bucket) >= RATE_LIMIT_MAX_REQUESTS:
-        raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
+        if len(bucket) >= RATE_LIMIT_MAX_REQUESTS:
+            raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
 
-    bucket.append(now)
+        bucket.append(now)
+
+        # Opportunistic cleanup to prevent unbounded client-id growth.
+        if len(request_buckets) > 10000:
+            stale_clients = [
+                key for key, values in request_buckets.items()
+                if not values or values[-1].timestamp() < window_start
+            ]
+            for key in stale_clients:
+                request_buckets.pop(key, None)
 
 
 def require_admin_key(request: Request) -> None:
@@ -75,6 +95,48 @@ def require_admin_key(request: Request) -> None:
     provided_key = request.headers.get("X-Admin-Key")
     if provided_key != ADMIN_API_KEY:
         raise HTTPException(status_code=401, detail="Admin API key is required.")
+
+
+def get_prompt_cache_key(prompt: str) -> str:
+    return hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+
+
+def get_cached_safe_result(prompt: str) -> Optional[Dict[str, Any]]:
+    cache_key = get_prompt_cache_key(prompt)
+    with safe_prompt_cache_lock:
+        entry = safe_prompt_cache.get(cache_key)
+        if not entry:
+            return None
+
+        now_utc = datetime.now(timezone.utc)
+        if (now_utc - entry["stored_at"]).total_seconds() > SAFE_PROMPT_CACHE_TTL_SECONDS:
+            safe_prompt_cache.pop(cache_key, None)
+            return None
+
+        safe_prompt_cache.move_to_end(cache_key)
+        return entry["result"].copy()
+
+
+def store_safe_result(prompt: str, result: Dict[str, Any]) -> None:
+    cache_key = get_prompt_cache_key(prompt)
+    now_utc = datetime.now(timezone.utc)
+    with safe_prompt_cache_lock:
+        safe_prompt_cache[cache_key] = {
+            "stored_at": now_utc,
+            "result": result.copy(),
+        }
+        safe_prompt_cache.move_to_end(cache_key)
+
+        while len(safe_prompt_cache) > SAFE_PROMPT_CACHE_MAX_SIZE:
+            safe_prompt_cache.popitem(last=False)
+
+        # Opportunistic cleanup for expired entries.
+        expired_keys = [
+            key for key, value in safe_prompt_cache.items()
+            if (now_utc - value["stored_at"]).total_seconds() > SAFE_PROMPT_CACHE_TTL_SECONDS
+        ]
+        for key in expired_keys:
+            safe_prompt_cache.pop(key, None)
 
 
 try:
@@ -136,11 +198,18 @@ logger.info("Trusted hosts configured for %s", TRUSTED_HOSTS)
 
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
+    request_start = time.perf_counter()
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Cache-Control"] = "no-store"
+    if request.url.path == "/":
+        response.headers["Cache-Control"] = "public, max-age=300"
+    elif request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "public, max-age=86400"
+    else:
+        response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Process-Time-Ms"] = f"{(time.perf_counter() - request_start) * 1000:.2f}"
     return response
 
 if (PROJECT_ROOT / "images").exists():
@@ -259,6 +328,11 @@ def get_gemini_response(prompt: str) -> Optional[str]:
 
 def analyze_prompt(prompt: str) -> Dict[str, Any]:
     logger.info("Analyzing prompt")
+    cached_result = get_cached_safe_result(prompt)
+    if cached_result is not None:
+        logger.info("Returning cached safe analysis result")
+        return cached_result
+
     status = "Safe"
     reasons: List[Dict[str, str]] = []
     redacted_prompt = prompt
@@ -282,6 +356,15 @@ def analyze_prompt(prompt: str) -> Dict[str, Any]:
         if kw in lower_text and status == "Safe":
             reasons.append({"type": "flagged", "message": f"Flagged keyword detected: {kw}"})
             status = "Flagged"
+
+    if status == "Blocked" and SKIP_HEAVY_SCANS_WHEN_BLOCKED:
+        result = {
+            "status": status,
+            "reasons": reasons,
+            "redacted_prompt": None,
+            "gemini_response": None,
+        }
+        return result
 
     try:
         results = analyzer.analyze(text=prompt, language="en") if analyzer else []
@@ -316,12 +399,17 @@ def analyze_prompt(prompt: str) -> Dict[str, Any]:
     if status == "Safe" and prompt.strip():
         gemini_response = get_gemini_response(prompt)
 
-    return {
+    result = {
         "status": status,
         "reasons": reasons,
         "redacted_prompt": redacted_prompt if redacted_prompt != prompt else None,
         "gemini_response": gemini_response
     }
+
+    if status == "Safe":
+        store_safe_result(prompt, result)
+
+    return result
 
 
 def log_result(prompt: str, status: str, reasons: List[Dict[str, str]], redacted_prompt: Optional[str], gemini_response: Optional[str]):
@@ -339,18 +427,28 @@ def log_result(prompt: str, status: str, reasons: List[Dict[str, str]], redacted
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_frontend():
-    with open(PROJECT_ROOT / "index.html", "r", encoding="utf-8") as f:
-        return f.read()
+    global INDEX_HTML_CACHE
+    if INDEX_HTML_CACHE is None:
+        with open(PROJECT_ROOT / "index.html", "r", encoding="utf-8") as f:
+            INDEX_HTML_CACHE = f.read()
+    return INDEX_HTML_CACHE
 
 @app.post("/check_prompt")
-async def check_prompt_endpoint(prompt_data: Prompt, request: Request) -> AnalysisResult:
+async def check_prompt_endpoint(prompt_data: Prompt, request: Request, background_tasks: BackgroundTasks) -> AnalysisResult:
     enforce_rate_limit(request)
     content_length_raw = request.headers.get("Content-Length")
     if content_length_raw and content_length_raw.isdigit() and int(content_length_raw) > MAX_PAYLOAD_SIZE:
         raise HTTPException(status_code=413, detail="Request payload size exceeds limit.")
 
-    result = analyze_prompt(prompt_data.text)
-    log_result(prompt_data.text, result["status"], result["reasons"], result.get("redacted_prompt"), result.get("gemini_response"))
+    result = await run_in_threadpool(analyze_prompt, prompt_data.text)
+    background_tasks.add_task(
+        log_result,
+        prompt_data.text,
+        result["status"],
+        result["reasons"],
+        result.get("redacted_prompt"),
+        result.get("gemini_response"),
+    )
 
     return AnalysisResult(
         prompt=prompt_data.text,

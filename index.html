@@ -227,6 +227,15 @@
                     </button>
                 </div>
             </div>
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                <div class="text-sm text-gray-500">
+                    Showing <span id="paginationRange">0-0</span> of <span id="paginationTotal">0</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button id="prevPageBtn" class="px-3 py-2 text-sm font-semibold rounded-lg bg-gray-200 text-gray-700 hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed">Previous</button>
+                    <button id="nextPageBtn" class="px-3 py-2 text-sm font-semibold rounded-lg bg-gray-200 text-gray-700 hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed">Next</button>
+                </div>
+            </div>
             <div id="logsContainer" class="overflow-x-auto">
                 <table class="min-w-full divide-y divide-gray-200 rounded-lg overflow-hidden">
                     <thead class="bg-gray-50">
@@ -315,9 +324,18 @@
         const updateModeBtn = document.getElementById('updateModeBtn');
         const modeSelect = document.getElementById('modeSelect');
         const currentModeText = document.getElementById('currentModeText');
+        const paginationRange = document.getElementById('paginationRange');
+        const paginationTotal = document.getElementById('paginationTotal');
+        const prevPageBtn = document.getElementById('prevPageBtn');
+        const nextPageBtn = document.getElementById('nextPageBtn');
 
         let allLogs = [];
         let statusChartInstance = null;
+        let logsLoaded = false;
+        let logSearchDebounceId = null;
+        let logsPageOffset = 0;
+        let logsPageLimit = 100;
+        let logsTotal = 0;
         const storedAdminKey = localStorage.getItem('promptComplianceAdminKey') || '';
         adminKeyInput.value = storedAdminKey;
         
@@ -370,7 +388,9 @@
                 showLogsBtn.classList.remove('bg-gray-200', 'text-gray-700');
                 showCheckerBtn.classList.remove('bg-teal-600', 'text-white');
                 showCheckerBtn.classList.add('bg-gray-200', 'text-gray-700');
-                fetchLogs();
+                if (!logsLoaded) {
+                    fetchLogs(0);
+                }
             }
         }
 
@@ -531,10 +551,11 @@
         closeModalBtn.addEventListener('click', hideBlockedModal);
         modalOkBtn.addEventListener('click', hideBlockedModal);
         
-        async function fetchLogs() {
+        async function fetchLogs(pageOffset = logsPageOffset) {
             refreshLogsText.textContent = "Refreshing...";
             try {
-                const response = await fetch(`${API_BASE_URL}/get_logs?limit=500`, {
+                logsPageOffset = pageOffset;
+                const response = await fetch(`${API_BASE_URL}/get_logs?limit=${logsPageLimit}&offset=${logsPageOffset}`, {
                     headers: getProtectedHeaders()
                 });
                 if (!response.ok) throw new Error("Server failed to return logs.");
@@ -547,14 +568,26 @@
                 }
                 
                 allLogs = data.logs || [];
+                logsTotal = data.total || 0;
                 displayLogs(allLogs);
                 updateLogSummary(allLogs);
+                logsLoaded = true;
+                updatePaginationControls();
             } catch (error) {
                 console.error("Error fetching logs:", error);
                 showToast("Failed to fetch logs.", "error");
             } finally {
                 refreshLogsText.textContent = "Refresh";
             }
+        }
+
+        function updatePaginationControls() {
+            const start = logsTotal === 0 ? 0 : logsPageOffset + 1;
+            const end = Math.min(logsPageOffset + logsPageLimit, logsTotal);
+            paginationRange.textContent = `${start}-${end}`;
+            paginationTotal.textContent = logsTotal;
+            prevPageBtn.disabled = logsPageOffset <= 0;
+            nextPageBtn.disabled = logsPageOffset + logsPageLimit >= logsTotal;
         }
         
         function renderStatusChart(logs) {
@@ -685,12 +718,15 @@
         }
 
         logSearchInput.addEventListener('input', () => {
-            const searchTerm = logSearchInput.value.toLowerCase();
-            clearSearchBtn.classList.toggle('hidden', !searchTerm);
-            const filteredLogs = allLogs.filter(log => 
-                log.prompt && log.prompt.toLowerCase().includes(searchTerm)
-            );
-            displayLogs(filteredLogs);
+            window.clearTimeout(logSearchDebounceId);
+            logSearchDebounceId = window.setTimeout(() => {
+                const searchTerm = logSearchInput.value.toLowerCase();
+                clearSearchBtn.classList.toggle('hidden', !searchTerm);
+                const filteredLogs = allLogs.filter(log => 
+                    log.prompt && log.prompt.toLowerCase().includes(searchTerm)
+                );
+                displayLogs(filteredLogs);
+            }, 150);
         });
 
         clearSearchBtn.addEventListener('click', () => {
@@ -700,7 +736,19 @@
         });
 
         refreshLogsBtn.addEventListener('click', () => {
-            fetchLogs();
+            fetchLogs(logsPageOffset);
+        });
+
+        prevPageBtn.addEventListener('click', () => {
+            const nextOffset = Math.max(0, logsPageOffset - logsPageLimit);
+            fetchLogs(nextOffset);
+        });
+
+        nextPageBtn.addEventListener('click', () => {
+            const nextOffset = logsPageOffset + logsPageLimit;
+            if (nextOffset < logsTotal) {
+                fetchLogs(nextOffset);
+            }
         });
 
         clearLogsBtn.addEventListener('click', async () => {
@@ -713,8 +761,11 @@
                 
                 if (!response.ok) throw new Error('Failed to clear logs.');
                 allLogs = [];
+                logsTotal = 0;
+                logsPageOffset = 0;
                 displayLogs(allLogs);
                 updateLogSummary(allLogs);
+                updatePaginationControls();
                 showToast('Logs cleared successfully.', 'success');
             } catch (error) {
                 console.error('Error clearing logs:', error);
@@ -765,7 +816,7 @@
 
         document.addEventListener('DOMContentLoaded', () => {
             showSection('checker');
-            fetchLogs();
+            updatePaginationControls();
         });
     </script>
 </body>
