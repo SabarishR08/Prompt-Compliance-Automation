@@ -64,6 +64,70 @@ python app.py
 
 ---
 
+![License](https://img.shields.io/badge/license-MIT-green) ![Language](https://img.shields.io/badge/language-Python-informational)
+
+
+## 📌 Overview
+
+Prompt Compliance Automation is a middleware solution designed to help users securely leverage Large Language Models (LLMs) while protecting sensitive data. It analyzes and moderates prompts to detect toxic content, sensitive keywords, and PII.
+
+## 🏗️ Architecture
+
+```text
+Browser / UI
+     │   HTTP
+     ▼
+FastAPI app
+     │
+     └──▶ External services — Google Gemini
+```
+
+## 🧰 Tech Stack
+
+- **Language:** Python
+- **Backend:** FastAPI
+- **Integrations:** Google Gemini
+
+## 🚀 Getting Started
+
+### Prerequisites
+
+- Python 3.10+
+
+### 1. Clone
+
+```bash
+git clone https://github.com/SabarishR08/Prompt-Compliance-Automation.git
+cd Prompt-Compliance-Automation
+```
+
+### 2. Install dependencies
+
+```bash
+python -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+### 3. Configure environment
+
+```bash
+cp .env.example .env   # then fill in values
+```
+
+Environment variables used: `GEMINI_API_KEY`, `ALLOWED_ORIGINS`, `TRUSTED_HOSTS`.
+
+External services involved: Google Gemini.
+
+### 4. Run
+
+```bash
+python app.py
+```
+
+
+---
+
 Prompt Compliance Automation is a FastAPI-based middleware service that screens LLM prompts before they reach a model endpoint. It detects sensitive keywords, PII, and toxic content, then classifies each prompt as Safe, Flagged, or Blocked.
 
 ## Overview
@@ -210,6 +274,12 @@ pytest -q tests/test_app_security.py
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for workflow and contribution guidelines.
+
+---
+
+## 📄 License
+
+[MIT](LICENSE) — © 2026 Sabarish R.
 
 ---
 
